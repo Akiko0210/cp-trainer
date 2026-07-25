@@ -6,16 +6,24 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "worker": "cd worker && uv run uvicorn app:app --port 8787",
+    "db": "docker start cp-trainer-pg 2>/dev/null || docker run -d --name cp-trainer-pg -e POSTGRES_USER=cp -e POSTGRES_PASSWORD=cp -e POSTGRES_DB=cp_trainer -p 5488:5432 -v cp-trainer-pgdata:/var/lib/postgresql/data postgres:16-alpine",
+    "db:schema": "docker exec -i cp-trainer-pg psql -U cp -d cp_trainer < db/schema.sql",
+    "seed": "cd worker && uv run python seed_usaco.py && uv run python seed_cf.py",
+    "dev:all": "./scripts/dev.sh"
   },
   "dependencies": {
     "next": "16.2.10",
+    "pg": "^8.22.0",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "recharts": "^3.9.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",

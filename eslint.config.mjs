@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Python worker + its cloned usaco.guide content are not lint targets.
+    "worker/**",
   ]),
 ]);
 

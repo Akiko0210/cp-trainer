@@ -1,26 +1,184 @@
 @import "tailwindcss";
 
+/* Theme toggle sets .dark on <html>; system preference is the default. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+  Design tokens (handoff §7).
+  Load-bearing rule: green/red/amber are VERDICT colors (AC/WA/TLE) and are
+  never used for anything else. Brand accent is indigo-violet; the mastery
+  ramp (--m1..--m5) is the brand ramp, --m0 is "no data yet".
+  --chart-1..5 is the validated categorical set for mistake-tag series
+  (order is the CVD-safety mechanism — never reorder or cycle).
+*/
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --page: #f7f8fa;
+  --card: #ffffff;
+  --card-2: #eff1f6;
+  --ink: #0f1729;
+  --muted: #64748b;
+  --line: #e3e7ef;
+  --accent: #5d5fef;
+  --accent-dk: #3b32a0;
+  --accent-ink: #ffffff;
+  --accent-soft: #ececfd;
+
+  --ac: #16a34a;
+  --wa: #dc2626;
+  --tle: #d97706;
+  --rece: #7c6f9b;
+  --pending: #64748b;
+  --ac-soft: #e7f6ec;
+  --wa-soft: #fdecec;
+  --tle-soft: #fbf1e2;
+  --rece-soft: #f0edf6;
+
+  --m0: #e9ecf2;
+  --m1: #dddefb;
+  --m2: #b9baf7;
+  --m3: #8f90f2;
+  --m4: #5d5fef;
+  --m5: #3b32a0;
+  --m0-ink: #64748b;
+  --m1-ink: #3b32a0;
+  --m2-ink: #322b96;
+  --m3-ink: #ffffff;
+  --m4-ink: #ffffff;
+  --m5-ink: #ffffff;
+
+  --chart-1: #2a78d6;
+  --chart-2: #eda100;
+  --chart-3: #e87ba4;
+  --chart-4: #4a3aa7;
+  --chart-5: #0891b2;
+
+  /* Category identity colors (navigation/theming, not data series).
+     Green/red/amber stay reserved for verdicts. */
+  --cat-fundamentals: #64748b;
+  --cat-data-structures: #5d5fef;
+  --cat-graphs: #0d9488;
+  --cat-dp: #8b5cf6;
+  --cat-math: #2a78d6;
+  --cat-strings: #d5518a;
+  --cat-geometry: #0891b2;
+  --cat-flow: #a21caf;
+}
+
+.dark {
+  --page: #0b0e14;
+  --card: #151a23;
+  --card-2: #1b2130;
+  --ink: #e6e9ef;
+  --muted: #8c97a8;
+  --line: #252d3d;
+  --accent: #6e70f4;
+  --accent-dk: #a9aafa;
+  --accent-ink: #ffffff;
+  --accent-soft: #23264a;
+
+  --ac: #34c065;
+  --wa: #ef5350;
+  --tle: #eba341;
+  --rece: #9c8fbf;
+  --pending: #94a3b8;
+  --ac-soft: #12291b;
+  --wa-soft: #2f1717;
+  --tle-soft: #2c2113;
+  --rece-soft: #241f31;
+
+  --m0: #1c222f;
+  --m1: #2c2e55;
+  --m2: #3e3f8a;
+  --m3: #5355c9;
+  --m4: #7b7df5;
+  --m5: #abacfa;
+  --m0-ink: #8c97a8;
+  --m1-ink: #c7c8fb;
+  --m2-ink: #e0e0fd;
+  --m3-ink: #ffffff;
+  --m4-ink: #0b0e14;
+  --m5-ink: #0b0e14;
+
+  --chart-1: #3987e5;
+  --chart-2: #c98500;
+  --chart-3: #d55181;
+  --chart-4: #9085e9;
+  --chart-5: #26a3b8;
+
+  --cat-fundamentals: #94a3b8;
+  --cat-data-structures: #7b7df5;
+  --cat-graphs: #2dc0ae;
+  --cat-dp: #a78bfa;
+  --cat-math: #3987e5;
+  --cat-strings: #e06c9f;
+  --cat-geometry: #22b1d4;
+  --cat-flow: #d054e0;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-page: var(--page);
+  --color-card: var(--card);
+  --color-card-2: var(--card-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-dk: var(--accent-dk);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-ac: var(--ac);
+  --color-wa: var(--wa);
+  --color-tle: var(--tle);
+  --color-rece: var(--rece);
+  --color-pending: var(--pending);
+  --color-ac-soft: var(--ac-soft);
+  --color-wa-soft: var(--wa-soft);
+  --color-tle-soft: var(--tle-soft);
+  --color-rece-soft: var(--rece-soft);
+
+  --font-sans: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-space), var(--font-body), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-jbmono), ui-monospace, "SF Mono", monospace;
+
+  --radius-card: 16px;
+  --radius-chip: 10px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background: var(--page);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Every metric reads like a judge readout: mono + tabular figures. */
+.num {
+  font-family: var(--font-jbmono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

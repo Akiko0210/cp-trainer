@@ -7,12 +7,23 @@ import { getCurrentUser, getOpenAttempt } from "@/lib/queries";
 export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "No user yet." }, { status: 404 });
-  const { problemId } = await req.json().catch(() => ({}));
+  const { problemId, inSession } = await req.json().catch(() => ({}));
   if (!problemId) {
     return NextResponse.json({ error: "problemId required." }, { status: 400 });
   }
 
-  // One open attempt at a time: abandon any previous unfinished session.
+  // Inside a virtual contest, the attempt is filed against that session so its
+  // splits are measured from the contest start.
+  const sessionId = inSession
+    ? (
+        await one<{ id: number }>(
+          "select id from contest_sessions where user_id = $1 and ended_at is null",
+          [user.id],
+        )
+      )?.id ?? null
+    : null;
+
+  // One problem in progress at a time: park any previous unfinished attempt.
   await one(
     `update attempts set ended_at = now(), outcome = 'gave_up'
      where user_id = $1 and ended_at is null`,
@@ -20,9 +31,9 @@ export async function POST(req: Request) {
   );
 
   const attempt = await one<{ id: number; started_at: string }>(
-    `insert into attempts (user_id, problem_id, started_at)
-     values ($1, $2, now()) returning id, started_at`,
-    [user.id, problemId],
+    `insert into attempts (user_id, problem_id, started_at, session_id)
+     values ($1, $2, now(), $3) returning id, started_at`,
+    [user.id, problemId, sessionId],
   );
   return NextResponse.json(attempt);
 }

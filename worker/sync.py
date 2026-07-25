@@ -31,9 +31,11 @@ def upsert_problem(cur, prob: dict) -> int | None:
     external_id = f"{prob['contestId']}{prob['index']}"
     cur.execute(
         """
-        insert into problem_catalog (source, external_id, title, url, rating, tags)
-        values ('cf', %s, %s, %s, %s, %s)
+        insert into problem_catalog
+          (source, external_id, contest_id, title, url, rating, tags)
+        values ('cf', %s, %s, %s, %s, %s, %s)
         on conflict (source, external_id) do update set
+          contest_id = coalesce(problem_catalog.contest_id, excluded.contest_id),
           rating = coalesce(problem_catalog.rating, excluded.rating),
           tags = case when problem_catalog.tags = '{}' then excluded.tags
                       else problem_catalog.tags end
@@ -41,6 +43,7 @@ def upsert_problem(cur, prob: dict) -> int | None:
         """,
         (
             external_id,
+            prob["contestId"],
             prob.get("name", external_id),
             f"https://codeforces.com/contest/{prob['contestId']}/problem/{prob['index']}",
             prob.get("rating"),
@@ -156,12 +159,14 @@ async def _run(conn, user_id: int, handle: str, last_synced: int, quick: bool) -
                     """
                     insert into submissions
                       (user_id, problem_id, verdict, language, submitted_at,
-                       time_ms, memory_bytes, source, external_submission_id)
-                    values (%s,%s,%s,%s,to_timestamp(%s),%s,%s,'cf_api',%s)
+                       time_ms, memory_bytes, participant_type, source,
+                       external_submission_id)
+                    values (%s,%s,%s,%s,to_timestamp(%s),%s,%s,%s,'cf_api',%s)
                     on conflict (user_id, source, external_submission_id)
                       do update set verdict = excluded.verdict,
                                     time_ms = excluded.time_ms,
-                                    memory_bytes = excluded.memory_bytes
+                                    memory_bytes = excluded.memory_bytes,
+                                    participant_type = excluded.participant_type
                     """,
                     (
                         user_id,
@@ -171,6 +176,7 @@ async def _run(conn, user_id: int, handle: str, last_synced: int, quick: bool) -
                         s["creationTimeSeconds"],
                         s.get("timeConsumedMillis"),
                         s.get("memoryConsumedBytes"),
+                        (s.get("author") or {}).get("participantType"),
                         sid,
                     ),
                 )

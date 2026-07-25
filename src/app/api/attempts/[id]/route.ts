@@ -69,14 +69,38 @@ export async function PATCH(
 
   if (body.action === "finish") {
     const outcome = body.outcome === "ac" ? "ac" : "gave_up";
-    const row = await one<{ id: number }>(
-      `update attempts set ended_at = now(), outcome = $3
-       where id = $1 and user_id = $2 and ended_at is null returning id`,
+    const row = await one<{ id: number; problem_id: number; source: string }>(
+      `update attempts a set ended_at = now(), outcome = $3
+       where a.id = $1 and a.user_id = $2 and a.ended_at is null
+       returning a.id, a.problem_id,
+         (select source from problem_catalog p where p.id = a.problem_id) as source`,
       [attemptId, user.id, outcome],
     );
     if (!row) {
       return NextResponse.json({ error: "Attempt already closed." }, { status: 409 });
     }
+
+    // Non-CF judges (Kattis) cannot be read, so an AC here IS the record —
+    // write the manual solve. CF problems get their verdicts from the mirror.
+    if (row.source !== "cf") {
+      if (outcome === "ac") {
+        await one(
+          `insert into submissions
+             (user_id, problem_id, verdict, submitted_at, source,
+              external_submission_id)
+           values ($1, $2, 'OK', now(), 'manual', $2)
+           on conflict (user_id, source, external_submission_id) do nothing`,
+          [user.id, row.problem_id],
+        );
+      }
+      return NextResponse.json({
+        ok: true,
+        synced: true,
+        manual: true,
+        verdicts: outcome === "ac" ? [{ verdict: "OK", submitted_at: null }] : [],
+      });
+    }
+
     // Catch the verdicts that were just submitted (also reconciles + recomputes
     // mastery). Best-effort: the scheduler picks it up later if this fails.
     let synced = false;

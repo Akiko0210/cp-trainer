@@ -148,18 +148,19 @@ export default async function TopicPage({
           ) : (
             <>
               <p className="mb-3 text-[13px] text-muted">
-                Recent, clean solves carry the most weight (90-day half-life;
-                messy solves count less).
+                Every problem you&apos;ve engaged with here, biggest movers
+                first. <b className="font-medium text-ink">Push</b> is how far
+                the outcome moved the estimate.
               </p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-line text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
                       <th className="pb-2 pr-3 font-semibold">Problem</th>
-                      <th className="num pb-2 pr-3 text-right font-semibold">Rated</th>
-                      <th className="num pb-2 pr-3 text-right font-semibold">WAs</th>
-                      <th className="num pb-2 pr-3 text-right font-semibold">Weight</th>
-                      <th className="num pb-2 text-right font-semibold">Solved</th>
+                      <th className="num pb-2 pr-3 text-right font-semibold">Diff</th>
+                      <th className="num pb-2 pr-3 text-right font-semibold">Exp.</th>
+                      <th className="num pb-2 pr-3 text-right font-semibold">Got</th>
+                      <th className="num pb-2 text-right font-semibold">Push</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">
@@ -175,21 +176,29 @@ export default async function TopicPage({
                             {c.title}
                           </a>
                         </td>
-                        <td className="num py-2 pr-3 text-right">{c.rating}</td>
-                        <td className="num py-2 pr-3 text-right">
-                          {c.wa_count === 0 ? (
-                            <span className="text-ac">0</span>
-                          ) : (
-                            <span className={c.wa_count >= 3 ? "text-wa" : ""}>
-                              {c.wa_count}
-                            </span>
-                          )}
+                        <td
+                          className="num py-2 pr-3 text-right text-muted"
+                          title={`rated ${c.rating} · ${daysAgo(c.at)} · ${
+                            c.in_contest ? "in contest" : "practice"
+                          }`}
+                        >
+                          {c.effective_difficulty}
                         </td>
                         <td className="num py-2 pr-3 text-right text-muted">
-                          {c.weight.toFixed(2)}
+                          {Math.round(c.p_solve * 100)}%
                         </td>
-                        <td className="num py-2 text-right text-muted">
-                          {daysAgo(c.solved_at)}
+                        <td className="num py-2 pr-3 text-right">
+                          <span className={c.solved ? "text-ac" : "text-wa"}>
+                            {c.solved ? "AC" : "—"}
+                          </span>
+                        </td>
+                        <td
+                          className={`num py-2 text-right ${
+                            c.push > 0 ? "text-ink" : "text-muted"
+                          }`}
+                        >
+                          {c.push > 0 ? "+" : ""}
+                          {c.push.toFixed(2)}
                         </td>
                       </tr>
                     ))}

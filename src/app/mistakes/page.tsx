@@ -176,6 +176,11 @@ export default async function MistakesPage() {
                 </tbody>
               </table>
             </div>
+            <p className="mt-3 border-t border-line pt-3 text-xs leading-relaxed text-muted">
+              Grouped by Codeforces topic, so mistakes from ICPC sets are
+              counted in the totals above but not placed here — Kattis problems
+              carry no topic tags.
+            </p>
           </Card>
         )}
 

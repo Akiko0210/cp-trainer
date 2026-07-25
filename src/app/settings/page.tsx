@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { Card, Label } from "@/components/ui";
+import { one } from "@/lib/db";
 import { getCurrentUser, getSyncState } from "@/lib/queries";
+import RefreshIcpc from "./RefreshIcpc";
 import SyncNow from "./SyncNow";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +10,13 @@ export const dynamic = "force-dynamic";
 export default async function SettingsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/");
-  const sync = await getSyncState(user.id);
+  const [sync, icpc] = await Promise.all([
+    getSyncState(user.id),
+    one<{ sets: number; problems: number }>(
+      `select (select count(*) from contest_sets)::int as sets,
+              (select count(*) from contest_set_problems)::int as problems`,
+    ),
+  ]);
 
   return (
     <div className="mx-auto max-w-xl pt-6">
@@ -66,6 +74,27 @@ export default async function SettingsPage() {
           The worker also syncs on its own every 30 minutes while running.
           Solves made outside the app count too — the mirror is your full CF
           history.
+        </p>
+      </Card>
+
+      <Card className="mt-4">
+        <Label>ICPC archive</Label>
+        <dl className="grid grid-cols-2 gap-y-2 text-sm">
+          <dt className="text-muted">Contest sets</dt>
+          <dd className="num text-right">{icpc?.sets ?? 0}</dd>
+          <dt className="text-muted">Problems</dt>
+          <dd className="num text-right">
+            {(icpc?.problems ?? 0).toLocaleString()}
+          </dd>
+        </dl>
+        <div className="mt-4">
+          <RefreshIcpc />
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-muted">
+          Kattis publishes a new regional season about once a year, so this is a
+          manual refresh rather than a schedule. Kattis has no public API and
+          disallows profile scraping, so your solves there are recorded by the
+          app&apos;s own timer, never mirrored.
         </p>
       </Card>
     </div>

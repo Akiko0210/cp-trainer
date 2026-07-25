@@ -89,24 +89,10 @@ export function heatLabel(score: number | null): string {
   return "cold";
 }
 
-// Display-only mirror of the worker's score factors (worker/mastery.py is the
-// source of truth) — used to SHOW the user why a score is what it is.
-export function scoreBreakdown(opts: {
-  estimate: number | null;
-  confidence: number | null;
-  lastPracticedAt: string | null;
-  userRating: number | null;
-}) {
-  if (opts.estimate == null) return null;
-  const base = opts.userRating ?? 1200;
-  const level = Math.max(0, Math.min(100, 50 + (opts.estimate - base) / 6));
-  const evidence = 0.3 + 0.7 * (opts.confidence ?? 0);
-  const idle = opts.lastPracticedAt
-    ? (Date.now() - new Date(opts.lastPracticedAt).getTime()) / 86400000
-    : Infinity;
-  const freshness = idle <= 30 ? 1 : 0.5 ** ((idle - 30) / 90);
-  return { level, evidence, freshness, idleDays: Math.floor(idle) };
-}
+// NOTE: there is deliberately no scoreBreakdown() here any more. Re-deriving
+// the worker's formula in the client meant the displayed breakdown could drift
+// from the stored score (it did). The worker now writes the factors it
+// actually used into topic_mastery.factors — read those.
 
 // Mastery score (0–100) -> ramp step 0..5 (0 = no data). CSS vars --m0..--m5
 // carry the brand ramp; --mN-ink the readable text color on each step.

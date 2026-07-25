@@ -62,6 +62,11 @@
   --cat-strings: #d5518a;
   --cat-geometry: #0891b2;
   --cat-flow: #a21caf;
+
+  /* ICPC practice sets get their own identity — deep navy, distinct from the
+     category hues and from the indigo brand accent. */
+  --icpc: #1e4fa3;
+  --icpc-soft: #e8eef9;
 }
 
 .dark {
@@ -113,6 +118,9 @@
   --cat-strings: #e06c9f;
   --cat-geometry: #22b1d4;
   --cat-flow: #d054e0;
+
+  --icpc: #5b8dd9;
+  --icpc-soft: #17233a;
 }
 
 @theme inline {

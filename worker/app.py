@@ -18,6 +18,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 import cf_api
 import db
 import seed_cf
+import seed_icpc
 import seed_usaco
 import sync
 
@@ -110,6 +111,27 @@ async def seed_endpoint(background: BackgroundTasks):
         with db.connect() as conn:
             seed_usaco.seed(conn)
             await seed_cf.seed_problemset(conn)
+
+    background.add_task(run)
+    return {"started": True}
+
+
+@app.post("/seed-icpc")
+async def seed_icpc_endpoint(background: BackgroundTasks, limit: int | None = None):
+    """Re-runnable ICPC set ingest from open.kattis.com.
+
+    Archival content that changes about once a year, so this is user-triggered
+    (Settings -> Refresh ICPC sets) rather than scheduled. Kattis has no API and
+    disallows profile scraping, so there is nothing here to monitor continuously.
+    """
+
+    def run():
+        with db.connect() as conn:
+            try:
+                result = seed_icpc.seed(conn, limit=limit)
+                log.info("icpc seed complete: %s", result)
+            except Exception:
+                log.exception("icpc seed failed")
 
     background.add_task(run)
     return {"started": True}

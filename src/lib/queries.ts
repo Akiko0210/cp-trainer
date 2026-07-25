@@ -9,6 +9,11 @@ export type User = {
   cf_rating: number | null;
   cf_max_rating: number | null;
   cf_rank: string | null;
+  // Fitted from in-contest performance; see worker/estimator.py. The offset is
+  // how much the problems you choose to engage with inflate an estimate.
+  ability_estimate: number | null;
+  ability_se: number | null;
+  selection_offset: number | null;
 };
 
 // v1 UX assumes one user (schema is multi-tenant; every query below scopes by user_id).
@@ -38,11 +43,13 @@ export type CategoryMastery = {
   name: string;
   score: number | null;
   rating_estimate: number | null;
+  estimate_se: number | null;
   confidence: number | null;
   trend: number | null;
   solved_count: number | null;
   recent_solve_count: number | null;
   last_practiced_at: string | null;
+  last_activity_at: string | null;
   module_count: number;
   stale_modules: number;
 };
@@ -50,8 +57,9 @@ export type CategoryMastery = {
 export async function getCategories(userId: number): Promise<CategoryMastery[]> {
   return q<CategoryMastery>(
     `select c.id, c.slug, c.name,
-            m.score, m.rating_estimate, m.confidence, m.trend,
+            m.score, m.rating_estimate, m.estimate_se, m.confidence, m.trend,
             m.solved_count, m.recent_solve_count, m.last_practiced_at,
+            m.last_activity_at,
             (select count(*) from topics t where t.category_slug = c.slug)::int
               as module_count,
             (select count(*) from topics t
@@ -208,16 +216,38 @@ export async function getSyncState(userId: number): Promise<SyncState | null> {
 
 // ---------- topic detail ----------
 
+// One observation behind an estimate. `push` = weight * (outcome - p_solve):
+// how hard this problem moved the fit, and in which direction.
 export type Contributor = {
   problem_id: number;
   external_id: string;
   title: string;
   url: string;
   rating: number;
+  effective_difficulty: number;
+  solved: boolean;
+  in_contest: boolean;
   wa_count: number;
-  solved_at: string;
+  at: string;
   weight: number;
-  adjusted_rating: number;
+  p_solve: number;
+  push: number;
+};
+
+// The score factors the worker actually used. Never re-derive these in the
+// UI — that is how the displayed breakdown drifts from the stored score.
+export type Factors = {
+  level: number;
+  evidence: number;
+  freshness: number;
+  heat_mass: number;
+  idle_days: number | null;
+  theta_engaged: number;
+  your_level: number;
+  selection_offset: number;
+  n_obs: number;
+  n_solved: number;
+  push_total: number;
 };
 
 export type TopicDetail = {
@@ -231,13 +261,17 @@ export type TopicDetail = {
   chapter_slug: string | null;
   score: number | null;
   rating_estimate: number | null;
+  estimate_se: number | null;
+  n_eff: number | null;
   confidence: number | null;
   trend: number | null;
   stale: boolean | null;
   solved_count: number | null;
   recent_solve_count: number | null;
   last_practiced_at: string | null;
+  last_activity_at: string | null;
   contributors: Contributor[] | null;
+  factors: Factors | null;
 };
 
 export async function getTopicDetail(
@@ -247,8 +281,10 @@ export async function getTopicDetail(
   return one<TopicDetail>(
     `select t.id, t.slug, t.name, t.division, t.parent_id, t.category_slug,
             ch.name as chapter, ch.slug as chapter_slug,
-            m.score, m.rating_estimate, m.confidence, m.trend, m.stale,
-            m.solved_count, m.recent_solve_count, m.last_practiced_at, m.contributors
+            m.score, m.rating_estimate, m.estimate_se, m.n_eff,
+            m.confidence, m.trend, m.stale,
+            m.solved_count, m.recent_solve_count, m.last_practiced_at,
+            m.last_activity_at, m.contributors, m.factors
      from topics t
      left join topics ch on ch.id = t.parent_id
      left join topic_mastery m on m.topic_id = t.id and m.user_id = $1

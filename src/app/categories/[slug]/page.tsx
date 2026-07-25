@@ -12,7 +12,6 @@ import {
   categoryColor,
   daysAgo,
   heatLabel,
-  scoreBreakdown,
   TIERS,
 } from "@/lib/taxonomy";
 
@@ -46,13 +45,12 @@ export default async function CategoryPage({
 
   const color = categoryColor(slug);
   const score = topic.score != null ? Math.round(topic.score) : null;
-  const anatomy = scoreBreakdown({
-    estimate: topic.rating_estimate,
-    confidence: topic.confidence,
-    lastPracticedAt: topic.last_practiced_at,
-    userRating: user.cf_rating,
-  });
-  const contributors = (topic.contributors ?? []).slice(0, 10);
+  // The worker stores the factors it actually multiplied; never re-derive.
+  const anatomy = topic.factors?.level != null ? topic.factors : null;
+  const all = topic.contributors ?? [];
+  const contributors = all.slice(0, 10);
+  const shownPush = contributors.reduce((s, c) => s + c.push, 0);
+  const tailPush = (topic.factors?.push_total ?? 0) - shownPush;
 
   const tiers = Object.entries(TIERS)
     .sort((a, b) => a[1].order - b[1].order)
@@ -101,7 +99,14 @@ export default async function CategoryPage({
                 {topic.rating_estimate != null && (
                   <>
                     {" "}
-                    · est <span className="num">{Math.round(topic.rating_estimate)}</span>
+                    · est{" "}
+                    <span className="num">{Math.round(topic.rating_estimate)}</span>
+                    {topic.estimate_se != null && (
+                      <span className="num text-muted/70">
+                        {" "}
+                        ±{Math.round(topic.estimate_se)}
+                      </span>
+                    )}
                   </>
                 )}
                 <TrendMark trend={topic.trend} />
@@ -121,7 +126,12 @@ export default async function CategoryPage({
           <div className="num mt-5 flex flex-wrap gap-x-6 gap-y-1 border-t border-line/70 pt-4 text-xs text-muted">
             <span>
               level <b className="text-ink">{Math.round(anatomy.level)}</b>
-              <span className="font-sans"> (est vs your {user.cf_rating ?? 1200})</span>
+              <span className="font-sans">
+                {" "}
+                (est vs your overall {Math.round(
+                  anatomy.your_level - anatomy.selection_offset,
+                )})
+              </span>
             </span>
             <span aria-hidden>×</span>
             <span>
@@ -136,9 +146,9 @@ export default async function CategoryPage({
               freshness <b className="text-ink">{anatomy.freshness.toFixed(2)}</b>
               <span className="font-sans">
                 {" "}
-                ({anatomy.idleDays > 30
-                  ? `decaying — ${anatomy.idleDays}d since last solve`
-                  : "fresh"})
+                {anatomy.idle_days != null && anatomy.idle_days > 30
+                  ? `(decaying — ${Math.round(anatomy.idle_days)}d since you touched it)`
+                  : "(fresh)"}
               </span>
             </span>
             <span aria-hidden>=</span>
@@ -203,41 +213,125 @@ export default async function CategoryPage({
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <Label>What&apos;s behind the estimate</Label>
-          {contributors.length === 0 ? (
-            <Empty title="No rated solves here yet">
-              Solve one problem in this area and the estimate starts moving.
+          {contributors.length === 0 || !anatomy ? (
+            <Empty title="Nothing to fit here yet">
+              Solve or attempt one problem in this area and the estimate starts
+              moving.
             </Empty>
           ) : (
             <>
-              <p className="mb-3 text-[13px] leading-relaxed text-muted">
-                The estimate is the recency-weighted average difficulty of your{" "}
-                <span className="num">{topic.solved_count}</span> rated solves
-                here (90-day half-life; clean solves get a bump, grindy ones a
-                cut). These carry the most weight right now:
+              <p className="mb-1 text-[13px] leading-relaxed text-muted">
+                Fitted from the <span className="num">{anatomy.n_obs}</span>{" "}
+                problems you&apos;ve engaged with here —{" "}
+                <span className="num">{anatomy.n_solved}</span> solved,{" "}
+                <span className="num">{anatomy.n_obs - anatomy.n_solved}</span>{" "}
+                not. Failures count: they&apos;re what stops the estimate running
+                away above what you can actually clear.
               </p>
-              <ul className="divide-y divide-line">
-                {contributors.map((c) => (
-                  <li key={c.problem_id} className="flex items-center gap-3 py-2">
-                    <span className="num w-11 shrink-0 text-right text-xs text-muted">
-                      {c.rating}
-                    </span>
-                    <a
-                      href={c.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="min-w-0 flex-1 truncate text-sm hover:text-accent"
-                    >
-                      {c.title}
-                    </a>
-                    <span className="num text-xs text-muted">
-                      w {c.weight.toFixed(2)}
-                    </span>
-                    <span className="num w-16 shrink-0 text-right text-xs text-muted">
-                      {daysAgo(c.solved_at)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <p className="mb-3 text-[13px] leading-relaxed text-muted">
+                <b className="font-medium text-ink">Push</b> is how far each
+                outcome moved the fit — clearing something you were expected to
+                fail pushes up, failing something you were expected to clear
+                pushes down. The estimate sits where they balance.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-line text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">
+                      <th className="pb-2 pr-2 text-left font-semibold">Problem</th>
+                      <th className="num pb-2 px-2 text-right font-semibold">Diff</th>
+                      <th className="num pb-2 px-2 text-right font-semibold">Exp.</th>
+                      <th className="num pb-2 px-2 text-right font-semibold">Got</th>
+                      <th className="num pb-2 pl-2 text-right font-semibold">Push</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {contributors.map((c) => (
+                      <tr key={c.problem_id}>
+                        <td className="max-w-40 truncate py-2 pr-2">
+                          <a
+                            href={c.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="hover:text-accent"
+                            title={`${c.title} · ${daysAgo(c.at)}${
+                              c.in_contest ? " · in contest" : " · practice"
+                            }`}
+                          >
+                            {c.title}
+                          </a>
+                        </td>
+                        <td
+                          className="num px-2 py-2 text-right text-muted"
+                          title={
+                            c.effective_difficulty !== c.rating
+                              ? `rated ${c.rating}, counted as ${c.effective_difficulty} (${
+                                  c.solved && !c.in_contest
+                                    ? "practice discount"
+                                    : c.wa_count === 0
+                                      ? "clean solve"
+                                      : `${c.wa_count} wrong submissions`
+                                })`
+                              : undefined
+                          }
+                        >
+                          {c.effective_difficulty}
+                        </td>
+                        <td className="num px-2 py-2 text-right text-muted">
+                          {Math.round(c.p_solve * 100)}%
+                        </td>
+                        <td className="num px-2 py-2 text-right">
+                          <span className={c.solved ? "text-ac" : "text-wa"}>
+                            {c.solved ? "AC" : "—"}
+                          </span>
+                        </td>
+                        <td
+                          className={`num py-2 pl-2 text-right ${
+                            c.push > 0 ? "text-ink" : "text-muted"
+                          }`}
+                        >
+                          {c.push > 0 ? "+" : ""}
+                          {c.push.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="border-t border-line">
+                    {all.length > contributors.length && (
+                      <tr className="text-xs text-muted">
+                        <td className="py-2 pr-2 font-sans" colSpan={4}>
+                          + {all.length - contributors.length} smaller
+                          observations
+                          {anatomy.n_obs > all.length &&
+                            ` (of ${anatomy.n_obs} total)`}
+                        </td>
+                        <td className="num py-2 pl-2 text-right">
+                          {tailPush > 0 ? "+" : ""}
+                          {tailPush.toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                    <tr className="text-xs">
+                      <td className="py-2 pr-2 font-sans text-muted" colSpan={4}>
+                        Net push, balanced against the pull toward your overall
+                        level
+                      </td>
+                      <td className="num py-2 pl-2 text-right font-semibold">
+                        {anatomy.push_total > 0 ? "+" : ""}
+                        {anatomy.push_total.toFixed(2)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <p className="mt-3 border-t border-line pt-3 text-xs leading-relaxed text-muted">
+                The raw fit lands at{" "}
+                <span className="num">{Math.round(anatomy.theta_engaged)}</span>;
+                we subtract{" "}
+                <span className="num">{Math.round(anatomy.selection_offset)}</span>{" "}
+                because you pick your own problems, which inflates every
+                estimate by that much measured against your contest record.
+              </p>
             </>
           )}
         </Card>

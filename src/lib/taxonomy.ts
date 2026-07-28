@@ -80,6 +80,49 @@ export const TIERS: Record<string, { label: string; order: number }> = {
   Advanced: { label: "Expert", order: 4 },
 };
 
+/*
+  The ICPC ladder. Order is the real advancement path, not alphabetical:
+  a team qualifies, wins a regional, advances to the North America
+  Championship, and from there to the World Finals. `you` marks the rung this
+  user is training for. Classifier: worker/icpc_taxonomy.py.
+*/
+export const ICPC_LEVELS: Record<
+  string,
+  { label: string; blurb: string; order: number; you?: boolean }
+> = {
+  "world-finals": {
+    label: "World Finals",
+    blurb: "the top of the ladder",
+    order: 0,
+  },
+  championship: {
+    label: "Championships",
+    blurb: "North America Championship (NAC) and the divisions feeding it",
+    order: 1,
+    you: true,
+  },
+  regional: {
+    label: "Regionals",
+    blurb: "the regional contests, by division",
+    order: 2,
+  },
+  qualifier: {
+    label: "Qualifiers",
+    blurb: "online gates before regionals",
+    order: 3,
+  },
+  practice: {
+    label: "Practice sessions",
+    blurb: "dress rehearsals attached to the contests above",
+    order: 4,
+  },
+  other: { label: "Other", blurb: "", order: 5 },
+};
+
+export const LEVEL_ORDER = Object.entries(ICPC_LEVELS)
+  .sort((a, b) => a[1].order - b[1].order)
+  .map(([k]) => k);
+
 // Score is current heat (level × evidence × freshness) — label it that way.
 export function heatLabel(score: number | null): string {
   if (score == null) return "untouched";

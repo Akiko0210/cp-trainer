@@ -28,6 +28,7 @@ import urllib.request
 import psycopg
 
 import db
+import icpc_taxonomy
 
 log = logging.getLogger("seed_icpc")
 
@@ -106,40 +107,6 @@ def discover_sources() -> list[str]:
     return sorted(found)
 
 
-def classify(name: str) -> tuple[str, int | None, str | None]:
-    """Derive (kind, year, region) from a source name.
-
-    Names look like "2015 ACM ICPC Singapore Regional" or
-    "2013 ACM-ICPC North American Qualifier".
-    """
-    year_m = re.search(r"\b(19|20)\d{2}\b", name)
-    year = int(year_m.group(0)) if year_m else None
-
-    lower = name.lower()
-    if "world finals" in lower:
-        kind = "world-finals"
-    elif "practice" in lower or "warm" in lower:
-        kind = "practice"
-    elif "qualif" in lower:
-        kind = "qualifier"
-    elif "regional" in lower or "region" in lower:
-        kind = "regional"
-    else:
-        kind = "other"
-
-    # Region = what's left after stripping the year and the boilerplate.
-    region = re.sub(r"\b(19|20)\d{2}\b", "", name)
-    region = re.sub(
-        r"\b(acm[- ]?icpc|acm|icpc|regionals?|contests?|qualifier|world finals?"
-        r"|practice session|practice|programming|division)\b",
-        "",
-        region,
-        flags=re.I,
-    )
-    region = re.sub(r"\s{2,}", " ", region).strip(" -–—")
-    return kind, year, (region or None)
-
-
 def parse_source_page(html: str) -> list[tuple[str, str, float | None]]:
     """-> [(slug, title, kattis_difficulty)] in listed order."""
     rows = PROBLEM_ROW.findall(html)
@@ -162,19 +129,24 @@ def parse_source_page(html: str) -> list[tuple[str, str, float | None]]:
 
 def upsert_set(conn: psycopg.Connection, name: str, problems: list) -> int:
     """Insert/refresh one contest set and its members. Returns problems linked."""
-    kind, year, region = classify(name)
+    info = icpc_taxonomy.classify(name)
+    if info is None:
+        return 0  # not an ICPC contest (Code Jam and friends)
     url = f"{BASE}/problem-sources/{urllib.parse.quote(name)}"
     with conn.cursor() as cur:
         cur.execute(
             """
-            insert into contest_sets (source, slug, name, kind, region, year, url)
-            values ('kattis', %s, %s, %s, %s, %s, %s)
+            insert into contest_sets
+              (source, slug, name, kind, level, region, series, year, url)
+            values ('kattis', %s, %s, %s, %s, %s, %s, %s, %s)
             on conflict (source, slug) do update set
-              name = excluded.name, kind = excluded.kind,
-              region = excluded.region, year = excluded.year, url = excluded.url
+              name = excluded.name, kind = excluded.kind, level = excluded.level,
+              region = excluded.region, series = excluded.series,
+              year = excluded.year, url = excluded.url
             returning id
             """,
-            (name, name, kind, region, year, url),
+            (name, name, info["level"], info["level"], info["region"],
+             info["series"], info["year"], url),
         )
         set_id = cur.fetchone()["id"]
 

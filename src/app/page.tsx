@@ -1,8 +1,10 @@
 import Link from "next/link";
 import CategoryGrid from "@/components/CategoryGrid";
 import Onboarding from "@/components/Onboarding";
+import StreakCard from "@/components/StreakCard";
 import SyncBanner from "@/components/SyncBanner";
 import { Card, Empty, Label, StatTile, TrendMark, VerdictBadge } from "@/components/ui";
+import type { DayActivity } from "@/lib/queries";
 import {
   getActivityStrip,
   getCategories,
@@ -10,6 +12,7 @@ import {
   getNeedsReview,
   getOverview,
   getRecentSubmissions,
+  getStreak,
   getSyncState,
   recommend,
 } from "@/lib/queries";
@@ -33,7 +36,7 @@ export default async function Dashboard() {
   }
   if (!user) return <Onboarding />;
 
-  const [sync, categories, overview, review, recent, activity, rec] =
+  const [sync, categories, overview, review, recent, activity, rec, streak] =
     await Promise.all([
       getSyncState(user.id),
       getCategories(user.id),
@@ -42,6 +45,7 @@ export default async function Dashboard() {
       getRecentSubmissions(user.id, 8),
       getActivityStrip(user.id),
       recommend(user.id, null).catch(() => null),
+      getStreak(user.id),
     ]);
 
   const hasData = overview.submissions_total > 0;
@@ -201,6 +205,8 @@ export default async function Dashboard() {
             )}
           </Card>
 
+          <StreakCard streak={streak} activity={activity} />
+
           <Card>
             <Label>Last 8 weeks</Label>
             <ActivityStrip days={activity} />
@@ -211,30 +217,43 @@ export default async function Dashboard() {
   );
 }
 
-function ActivityStrip({
-  days,
-}: {
-  days: { day: string; solved: number; failed: number }[];
-}) {
+function ActivityStrip({ days }: { days: DayActivity[] }) {
   const max = Math.max(1, ...days.map((d) => d.solved + d.failed));
+  // Square-root scale: one 40-submission day would otherwise flatten every
+  // ordinary day into an indistinguishable line.
+  const scale = (n: number) => Math.sqrt(n) / Math.sqrt(max);
+  const busiest = days.reduce(
+    (best, d) => (d.solved + d.failed > best.solved + best.failed ? d : best),
+    days[0],
+  );
+
   return (
-    <div className="flex h-16 items-end gap-[3px]" aria-label="Daily submissions, last 8 weeks">
-      {days.map((d) => {
-        const total = d.solved + d.failed;
-        const h = total === 0 ? 0 : Math.max(12, (total / max) * 100);
-        return (
-          <div
-            key={d.day}
-            title={`${d.day}: ${d.solved} solved, ${d.failed} failed`}
-            className="flex-1 rounded-[2px]"
-            style={{
-              height: `${Math.max(h, 6)}%`,
-              backgroundColor: total === 0 ? "var(--m0)" : "var(--accent)",
-              opacity: total === 0 ? 1 : 0.35 + 0.65 * (total / max),
-            }}
-          />
-        );
-      })}
-    </div>
+    <>
+      <div
+        className="flex h-16 items-end gap-[2px]"
+        aria-label="Daily submissions, last 8 weeks"
+      >
+        {days.map((d) => {
+          const total = d.solved + d.failed;
+          return (
+            <div
+              key={d.day}
+              title={`${d.day}: ${d.solved} solved, ${d.failed} failed`}
+              className="flex-1 rounded-[2px]"
+              style={{
+                height: total === 0 ? "4px" : `${Math.max(10, scale(total) * 100)}%`,
+                backgroundColor: total === 0 ? "var(--m0)" : "var(--accent)",
+              }}
+            />
+          );
+        })}
+      </div>
+      <div className="mt-1.5 flex justify-between text-[11px] text-muted">
+        <span>8 weeks ago</span>
+        <span className="num">
+          busiest {busiest ? busiest.solved + busiest.failed : 0}/day
+        </span>
+      </div>
+    </>
   );
 }

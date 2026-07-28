@@ -97,18 +97,24 @@ create index if not exists submissions_user_time
 -- from the app's own timer, or from an explicit "mark solved".
 -- ---------------------------------------------------------------------------
 
+-- level/region/series place a set on the real ICPC ladder; the classifier is
+-- worker/icpc_taxonomy.py and is a pure function of `name`, so re-deriving
+-- these never requires re-crawling.
 create table if not exists contest_sets (
   id     bigserial primary key,
   source text not null default 'kattis',
   slug   text not null,                      -- the /problem-sources/<slug> name
   name   text not null,
-  kind   text not null default 'other',      -- world-finals|regional|qualifier|practice|other
-  region text,
+  kind   text not null default 'other',      -- legacy; superseded by `level`
+  level  text not null default 'other',      -- qualifier|regional|championship|world-finals|practice
+  region text,                               -- North America|Europe|Asia|Global|Other
+  series text,                               -- subgroup: Pacific Northwest, NWERC, NAC, ...
   year   int,
   url    text not null,
   unique (source, slug)
 );
-create index if not exists contest_sets_kind_year on contest_sets (kind, year desc);
+create index if not exists contest_sets_level_year on contest_sets (level, year desc);
+create index if not exists contest_sets_series on contest_sets (series);
 
 create table if not exists contest_set_problems (
   set_id     bigint not null references contest_sets(id) on delete cascade,

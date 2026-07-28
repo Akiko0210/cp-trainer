@@ -13,8 +13,9 @@ export type ContestSet = {
   id: number;
   slug: string;
   name: string;
-  kind: string;
+  level: string;
   region: string | null;
+  series: string | null;
   year: number | null;
   url: string;
   problem_count: number;
@@ -22,20 +23,23 @@ export type ContestSet = {
   min_difficulty: number | null;
   max_difficulty: number | null;
   last_session_at: string | null;
+  sessions: number;
 };
 
 export async function getContestSets(
   userId: number,
-  filters: { kind?: string; region?: string; year?: number } = {},
+  filters: { level?: string; region?: string; series?: string; year?: number } = {},
 ): Promise<ContestSet[]> {
   return q<ContestSet>(
-    `select s.id, s.slug, s.name, s.kind, s.region, s.year, s.url,
+    `select s.id, s.slug, s.name, s.level, s.region, s.series, s.year, s.url,
             count(sp.problem_id)::int as problem_count,
             count(*) filter (where sol.problem_id is not null)::int as solved_count,
             min(p.kattis_difficulty) as min_difficulty,
             max(p.kattis_difficulty) as max_difficulty,
             (select max(cs.started_at) from contest_sessions cs
-              where cs.set_id = s.id and cs.user_id = $1) as last_session_at
+              where cs.set_id = s.id and cs.user_id = $1) as last_session_at,
+            (select count(*) from contest_sessions cs
+              where cs.set_id = s.id and cs.user_id = $1)::int as sessions
      from contest_sets s
      join contest_set_problems sp on sp.set_id = s.id
      join problem_catalog p on p.id = sp.problem_id
@@ -43,40 +47,78 @@ export async function getContestSets(
        select distinct problem_id from submissions
        where user_id = $1 and verdict = 'OK'
      ) sol on sol.problem_id = sp.problem_id
-     where ($2::text is null or s.kind = $2)
+     where ($2::text is null or s.level = $2)
        and ($3::text is null or s.region = $3)
-       and ($4::int is null or s.year = $4)
+       and ($4::text is null or s.series = $4)
+       and ($5::int is null or s.year = $5)
      group by s.id
      order by s.year desc nulls last, s.name`,
-    [userId, filters.kind ?? null, filters.region ?? null, filters.year ?? null],
+    [
+      userId,
+      filters.level ?? null,
+      filters.region ?? null,
+      filters.series ?? null,
+      filters.year ?? null,
+    ],
   );
 }
 
 export type SetFilterOptions = {
-  kinds: { kind: string; n: number }[];
+  levels: { level: string; n: number }[];
   years: number[];
-  regions: string[];
+  regions: { region: string; n: number }[];
+  series: { series: string; region: string; level: string; n: number }[];
 };
 
 export async function getSetFilterOptions(): Promise<SetFilterOptions> {
-  const [kinds, years, regions] = await Promise.all([
-    q<{ kind: string; n: number }>(
-      `select kind, count(*)::int as n from contest_sets group by kind order by n desc`,
+  const [levels, years, regions, series] = await Promise.all([
+    q<{ level: string; n: number }>(
+      `select level, count(*)::int as n from contest_sets group by level`,
     ),
     q<{ year: number }>(
       `select distinct year from contest_sets where year is not null order by year desc`,
     ),
-    q<{ region: string }>(
-      `select region, count(*) as n from contest_sets
-       where region is not null group by region having count(*) >= 2
-       order by n desc, region limit 24`,
+    q<{ region: string; n: number }>(
+      `select region, count(*)::int as n from contest_sets
+       where region is not null group by region order by n desc`,
+    ),
+    q<{ series: string; region: string; level: string; n: number }>(
+      `select series, min(region) as region, min(level) as level, count(*)::int as n
+       from contest_sets where series is not null
+       group by series order by series`,
     ),
   ]);
-  return {
-    kinds,
-    years: years.map((r) => r.year),
-    regions: regions.map((r) => r.region),
-  };
+  return { levels, years: years.map((r) => r.year), regions, series };
+}
+
+// The user's own ladder: how much of each rung they've actually practised.
+export type LadderRung = {
+  level: string;
+  sets: number;
+  problems: number;
+  solved: number;
+  sessions: number;
+};
+
+export async function getLadder(userId: number): Promise<LadderRung[]> {
+  return q<LadderRung>(
+    `select s.level,
+            count(distinct s.id)::int as sets,
+            count(sp.problem_id)::int as problems,
+            count(*) filter (where sol.problem_id is not null)::int as solved,
+            (select count(*) from contest_sessions cs
+               join contest_sets s2 on s2.id = cs.set_id
+              where cs.user_id = $1 and s2.level = s.level)::int as sessions
+     from contest_sets s
+     join contest_set_problems sp on sp.set_id = s.id
+     left join (
+       select distinct problem_id from submissions
+       where user_id = $1 and verdict = 'OK'
+     ) sol on sol.problem_id = sp.problem_id
+     where s.level <> 'practice'
+     group by s.level`,
+    [userId],
+  );
 }
 
 export type SetProblem = {

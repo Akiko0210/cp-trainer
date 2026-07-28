@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Select from "@/components/Select";
 import { Card, Label, VerdictBadge } from "@/components/ui";
 import type { OpenAttempt, PickerTopic, Recommendation } from "@/lib/queries";
 import { CATEGORIES, fmtDuration, MISTAKE_TAGS, TIERS } from "@/lib/taxonomy";
@@ -186,33 +187,39 @@ export default function SolveClient({
           {phase === "pick" && (
             <Card>
               <Label>Topic</Label>
-              <select
+              <Select
+                ariaLabel="Choose a topic to grind"
                 value={topic}
-                onChange={(e) => {
+                onChange={(v) => {
                   skip.current = 0;
-                  setTopic(e.target.value);
+                  setTopic(v);
                 }}
-                className="w-full rounded-xl border border-line bg-page px-3 py-2.5 text-sm"
-                aria-label="Choose a topic to grind"
-              >
-                <option value="">Let the trainer choose (weak / stale first)</option>
-                {CATEGORIES.map((c) => {
-                  const mods = byCategory[`cat-${c.slug}`] ?? [];
-                  return (
-                    <optgroup key={c.slug} label={c.name}>
-                      <option value={`cat-${c.slug}`}>All of {c.name}</option>
-                      {mods.map((t) => (
-                        <option key={t.slug} value={t.slug}>
-                          {" "}
-                          {t.name} · {TIERS[t.division]?.label ?? t.division}
-                          {t.score != null ? ` · ${Math.round(t.score)}` : ""}
-                          {t.stale ? " · review" : ""}
-                        </option>
-                      ))}
-                    </optgroup>
-                  );
-                })}
-              </select>
+                placeholder="Let the trainer choose (weak / stale first)"
+                groups={[
+                  {
+                    label: "",
+                    options: [
+                      {
+                        value: "",
+                        label: "Let the trainer choose (weak / stale first)",
+                      },
+                    ],
+                  },
+                  ...CATEGORIES.map((c) => ({
+                    label: c.name,
+                    options: [
+                      { value: `cat-${c.slug}`, label: `All of ${c.name}` },
+                      ...(byCategory[`cat-${c.slug}`] ?? []).map((t) => ({
+                        value: t.slug,
+                        label: `${t.name} · ${TIERS[t.division]?.label ?? t.division}`,
+                        hint:
+                          (t.score != null ? String(Math.round(t.score)) : "") +
+                          (t.stale ? " review" : ""),
+                      })),
+                    ],
+                  })),
+                ]}
+              />
 
               <div className="mt-4 border-t border-line pt-4">
                 {recLoading ? (

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import Select from "@/components/Select";
 import { Card, Label } from "@/components/ui";
 import type {
   ContestSet,
@@ -9,7 +10,12 @@ import type {
   SessionResult,
   SetProblem,
 } from "@/lib/icpc-queries";
-import { fmtDuration, MISTAKE_LABELS, MISTAKE_TAGS } from "@/lib/taxonomy";
+import {
+  fmtDuration,
+  ICPC_LEVELS,
+  MISTAKE_LABELS,
+  MISTAKE_TAGS,
+} from "@/lib/taxonomy";
 
 /*
   One ICPC set, two modes.
@@ -136,7 +142,11 @@ export default function SetClient({
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-              {[set.kind.replace(/-/g, " "), set.region, set.year]
+              {[
+                ICPC_LEVELS[set.level]?.label ?? set.level,
+                set.series,
+                set.year,
+              ]
                 .filter(Boolean)
                 .join(" · ")}
             </div>
@@ -156,21 +166,17 @@ export default function SetClient({
             />
           ) : (
             <div className="flex flex-wrap items-center gap-2">
-              <label htmlFor="dur" className="sr-only">
-                Contest length
-              </label>
-              <select
-                id="dur"
-                value={duration}
-                onChange={(e) => setDuration(Number(e.target.value))}
-                className="rounded-xl border border-line bg-card px-3 py-2.5 text-sm"
-              >
-                {DURATIONS.map((d) => (
-                  <option key={d.value} value={d.value}>
-                    {d.label}
-                  </option>
-                ))}
-              </select>
+              <Select
+                ariaLabel="Contest length"
+                className="w-52"
+                accent="var(--icpc)"
+                value={String(duration)}
+                onChange={(v) => setDuration(Number(v))}
+                options={DURATIONS.map((d) => ({
+                  value: String(d.value),
+                  label: d.label,
+                }))}
+              />
               <button
                 onClick={startContest}
                 disabled={busy || otherContestRunning}

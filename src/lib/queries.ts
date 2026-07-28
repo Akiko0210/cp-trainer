@@ -121,17 +121,80 @@ export async function getOverview(userId: number): Promise<Overview> {
   return row!;
 }
 
-export type DayActivity = { day: string; solved: number; failed: number };
+export type Streak = {
+  current: number;
+  longest: number;
+  active_today: boolean;
+  last_active: string | null;
+};
 
-// Last 8 weeks of daily activity for the dashboard strip.
+/*
+  Practice streak: consecutive calendar days with any real practice — a
+  Codeforces submission, or a timed attempt in the app (which is what counts
+  ICPC/Kattis work, since that judge can't be mirrored).
+
+  The streak survives today being empty until the day is over: if you last
+  practised yesterday the streak still stands, it's just not extended yet.
+  Anything older breaks it.
+*/
+export async function getStreak(userId: number): Promise<Streak> {
+  const row = await one<Streak>(
+    `with days as (
+       select distinct submitted_at::date as d from submissions where user_id = $1
+       union
+       select distinct started_at::date from attempts where user_id = $1
+     ),
+     -- consecutive days share (date - row_number), so grouping on it yields runs
+     runs as (
+       select d, d - (row_number() over (order by d))::int * interval '1 day' as grp
+       from days
+     ),
+     spans as (
+       select min(d) as start_d, max(d) as end_d, count(*)::int as len
+       from runs group by grp
+     )
+     select
+       coalesce((select len from spans
+                 where end_d >= current_date - 1
+                 order by end_d desc limit 1), 0)::int as current,
+       coalesce((select max(len) from spans), 0)::int as longest,
+       exists (select 1 from days where d = current_date) as active_today,
+       (select max(d)::text from days) as last_active`,
+    [userId],
+  );
+  return row ?? { current: 0, longest: 0, active_today: false, last_active: null };
+}
+
+export type DayActivity = {
+  day: string;
+  solved: number;
+  failed: number;
+  active: boolean;
+};
+
+// Last 8 weeks of daily activity for the dashboard strip. `active` matches the
+// streak's definition of a practice day (a submission OR a timed attempt), so
+// the strip and the streak count can never disagree.
 export async function getActivityStrip(userId: number): Promise<DayActivity[]> {
+  // Aggregate each source separately before joining: joining both raw tables
+  // to the day series would multiply rows and inflate the counts.
   return q<DayActivity>(
-    `select d::date::text as day,
-            coalesce(count(s.id) filter (where s.verdict = 'OK'), 0)::int as solved,
-            coalesce(count(s.id) filter (where s.verdict <> 'OK'), 0)::int as failed
-     from generate_series(now()::date - 55, now()::date, '1 day') d
-     left join submissions s on s.user_id = $1 and s.submitted_at::date = d::date
-     group by 1 order by 1`,
+    `with subs as (
+       select submitted_at::date as d,
+              count(*) filter (where verdict = 'OK')::int as solved,
+              count(*) filter (where verdict <> 'OK')::int as failed
+       from submissions where user_id = $1 group by 1
+     ), atts as (
+       select distinct started_at::date as d from attempts where user_id = $1
+     )
+     select g::date::text as day,
+            coalesce(subs.solved, 0) as solved,
+            coalesce(subs.failed, 0) as failed,
+            (subs.d is not null or atts.d is not null) as active
+     from generate_series(now()::date - 55, now()::date, '1 day') g
+     left join subs on subs.d = g::date
+     left join atts on atts.d = g::date
+     order by g`,
     [userId],
   );
 }

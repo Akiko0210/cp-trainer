@@ -5,15 +5,17 @@ does) plus the analytics recompute. Endpoints are called by the Next app;
 a background loop keeps every user's mirror fresh on an interval.
 
 Run:  uv run uvicorn app:app --port 8787
-Env:  DATABASE_URL, SYNC_INTERVAL_MINUTES (default 30), WORKER_PORT
+Env:  DATABASE_URL, SYNC_INTERVAL_MINUTES (default 30), WORKER_PORT,
+      WORKER_TOKEN (shared with the Next app; required outside localhost)
 """
 
 import asyncio
 import contextlib
 import logging
 import os
+import secrets
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 
 import cf_api
 import db
@@ -68,13 +70,33 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="cp-trainer-worker", lifespan=lifespan)
 
+WORKER_TOKEN = os.environ.get("WORKER_TOKEN", "").strip()
+
+
+def require_token(x_worker_token: str = Header(default="")) -> None:
+    """Shared-secret gate on everything that acts.
+
+    These endpoints re-sync any user's full Codeforces history and crawl
+    Kattis, so reaching the worker must not be the same thing as being allowed
+    to drive it. With no token configured the worker is assumed to be on a
+    private network (a laptop, or a platform's internal address) and stays
+    open — that is the localhost development case, and the Next app refuses to
+    boot in production without WORKER_TOKEN set on both sides.
+    """
+    if not WORKER_TOKEN:
+        return
+    if not secrets.compare_digest(x_worker_token, WORKER_TOKEN):
+        raise HTTPException(401, "Bad or missing worker token")
+
 
 @app.get("/health")
 def health() -> dict:
+    """Unauthenticated on purpose: platform health checks can't hold a secret,
+    and this reveals nothing."""
     return {"ok": True}
 
 
-@app.post("/sync/{user_id}")
+@app.post("/sync/{user_id}", dependencies=[Depends(require_token)])
 async def sync_endpoint(user_id: int, background: BackgroundTasks, quick: bool = False):
     """quick=true: small newest-page pull, awaited (solve view verdict check).
     quick=false: full incremental mirror, runs in background; the app polls
@@ -88,7 +110,7 @@ async def sync_endpoint(user_id: int, background: BackgroundTasks, quick: bool =
     return {"started": True}
 
 
-@app.post("/validate-handle/{handle}")
+@app.post("/validate-handle/{handle}", dependencies=[Depends(require_token)])
 async def validate_handle(handle: str):
     """Check a CF handle exists before creating the user (onboarding)."""
     try:
@@ -103,7 +125,7 @@ async def validate_handle(handle: str):
     }
 
 
-@app.post("/seed")
+@app.post("/seed", dependencies=[Depends(require_token)])
 async def seed_endpoint(background: BackgroundTasks):
     """Re-runnable: usaco.guide topics/catalog, then CF problemset ratings."""
 
@@ -116,7 +138,7 @@ async def seed_endpoint(background: BackgroundTasks):
     return {"started": True}
 
 
-@app.post("/seed-icpc")
+@app.post("/seed-icpc", dependencies=[Depends(require_token)])
 async def seed_icpc_endpoint(background: BackgroundTasks, limit: int | None = None):
     """Re-runnable ICPC set ingest from open.kattis.com.
 

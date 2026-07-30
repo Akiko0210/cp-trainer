@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Card, Label } from "@/components/ui";
 import { one } from "@/lib/db";
 import { getCurrentUser, getSyncState } from "@/lib/queries";
+import PairDevice from "./PairDevice";
 import RefreshIcpc from "./RefreshIcpc";
 import SyncNow from "./SyncNow";
 
@@ -75,6 +76,16 @@ export default async function SettingsPage() {
           Solves made outside the app count too — the mirror is your full CF
           history.
         </p>
+      </Card>
+
+      <Card className="mt-4">
+        <Label>Menu bar app</Label>
+        <p className="mb-3 text-[13px] leading-relaxed text-muted">
+          The macOS menu bar readout keeps your streak visible without opening
+          the site. It isn&apos;t a browser, so it can&apos;t use your sign-in —
+          pair it once with a token of its own, revocable from here.
+        </p>
+        <PairDevice />
       </Card>
 
       <Card className="mt-4">

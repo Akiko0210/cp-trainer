@@ -1,9 +1,11 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createSession, exchangeCode, safeNext, upsertGithubUser } from "@/lib/auth";
+import { originOf } from "@/lib/http";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
+  const origin = originOf(req);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
 
@@ -15,19 +17,19 @@ export async function GET(req: Request) {
 
   // Reject anything that didn't originate from our own signin route.
   if (!code || !state || !expected || state !== expected) {
-    return NextResponse.redirect(new URL("/signin?error=state", url.origin));
+    return NextResponse.redirect(new URL("/signin?error=state", origin));
   }
 
   try {
-    const profile = await exchangeCode(code, url.origin);
+    const profile = await exchangeCode(code, origin);
     const userId = await upsertGithubUser(profile);
     await createSession(userId, req.headers.get("user-agent") ?? undefined);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Sign-in failed.";
     return NextResponse.redirect(
-      new URL(`/signin?error=${encodeURIComponent(message)}`, url.origin),
+      new URL(`/signin?error=${encodeURIComponent(message)}`, origin),
     );
   }
 
-  return NextResponse.redirect(new URL(next, url.origin));
+  return NextResponse.redirect(new URL(next, origin));
 }

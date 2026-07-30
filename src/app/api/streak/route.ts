@@ -1,20 +1,23 @@
 import { NextResponse } from "next/server";
+import { getRequestUser } from "@/lib/auth";
 import {
   getActivityStrip,
-  getCurrentUser,
   getStreak,
   nextMilestone,
 } from "@/lib/queries";
 
 /*
-  Streak as JSON. Read by the dashboard hero's live refresh and by the macOS
-  menu bar app (menubar/), which is why it stays a plain unauthenticated
-  localhost endpoint with a small, stable shape.
+  Streak as JSON, for the header chip and the macOS menu bar app.
+
+  Read-only and per-user, so it accepts either the session cookie or a paired
+  device token (Authorization: Bearer). The menu bar app is not a browser and
+  can never hold a cookie — before the token it simply got a 401 here and
+  displayed a dash, which is exactly as useful as no app at all.
 */
-export async function GET() {
-  const user = await getCurrentUser();
+export async function GET(req: Request) {
+  const user = await getRequestUser(req);
   if (!user) {
-    return NextResponse.json({ error: "No user yet." }, { status: 404 });
+    return NextResponse.json({ error: "Sign in first." }, { status: 401 });
   }
   const [streak, activity] = await Promise.all([
     getStreak(user.id),

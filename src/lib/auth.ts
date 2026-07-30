@@ -16,6 +16,8 @@ import { one, q } from "./db";
 
 const COOKIE = "cpt_session";
 const SESSION_DAYS = 30;
+// A paired device (the menu bar app) shouldn't be signed out every month.
+const DEVICE_DAYS = 365;
 
 export type SessionUser = {
   id: number;
@@ -132,6 +134,9 @@ export async function createSession(userId: number, userAgent?: string) {
      values ($1, $2, $3, $4)`,
     [token, userId, expires, userAgent ?? null],
   );
+  // Sign-in is a good moment to take out the rubbish: expired rows are dead
+  // weight and nothing else ever deletes them.
+  await q("delete from sessions where expires_at < now()");
   const jar = await cookies();
   jar.set(COOKIE, token, {
     httpOnly: true,
@@ -164,6 +169,51 @@ export async function getSessionUser(): Promise<SessionUser | null> {
      where s.token = $1 and s.expires_at > now()`,
     [token],
   );
+}
+
+/**
+ * Mint a long-lived token for a headless client — today, the macOS menu bar
+ * app. It is an ordinary session row, so it shows up in the same table, expires
+ * on its own, and can be revoked by deleting it. The value is returned once and
+ * never stored anywhere else.
+ */
+export async function createDeviceToken(
+  userId: number,
+  label: string,
+): Promise<string> {
+  const token = randomBytes(32).toString("base64url");
+  await q(
+    `insert into sessions (token, user_id, expires_at, user_agent)
+     values ($1, $2, $3, $4)`,
+    [token, userId, new Date(Date.now() + DEVICE_DAYS * 86400_000), label],
+  );
+  return token;
+}
+
+/**
+ * The user behind either a session cookie or `Authorization: Bearer <token>`.
+ *
+ * The menu bar app can't hold a cookie — it isn't a browser and never completes
+ * an OAuth round trip — so read-only endpoints it polls accept a bearer token
+ * instead. Only pass `req` on endpoints that are safe for a device to read;
+ * everything that writes stays cookie-only, where SameSite protects it.
+ */
+export async function getRequestUser(req: Request): Promise<SessionUser | null> {
+  const header = req.headers.get("authorization");
+  const bearer = header?.toLowerCase().startsWith("bearer ")
+    ? header.slice(7).trim()
+    : null;
+  if (bearer) {
+    const user = await one<SessionUser>(
+      `select u.id, u.github_login, u.display_name, u.avatar_url, u.cf_handle,
+              u.cf_rating, u.cf_rank, u.ability_estimate
+       from sessions s join users u on u.id = s.user_id
+       where s.token = $1 and s.expires_at > now()`,
+      [bearer],
+    );
+    if (user) return user;
+  }
+  return getSessionUser();
 }
 
 /** Throwing variant for API routes. */

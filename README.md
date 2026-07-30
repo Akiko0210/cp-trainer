@@ -43,6 +43,11 @@ few minutes; the dashboard shows progress).
 `pnpm worker` / `pnpm dev` run the two services separately. Config lives in
 `.env` (see [.env.example](.env.example)); the defaults match `pnpm db`.
 
+To put this in front of a club, see **[DEPLOY.md](DEPLOY.md)** — it covers the
+one free option that keeps every feature (a small always-on box running
+[docker-compose.yml](docker-compose.yml)) and the one that trades live updates
+for zero machines, with the trade spelled out rather than buried.
+
 ## How the numbers work
 
 - **Taxonomy**: 8 canonical ICPC categories (Fundamentals, Data Structures,

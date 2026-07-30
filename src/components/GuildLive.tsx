@@ -59,32 +59,88 @@ export default function GuildLive({
 
   useEffect(() => {
     if (!enabled) return;
-    const source = new EventSource("/api/guild/stream");
+
+    let source: EventSource | null = null;
+    let poll: ReturnType<typeof setInterval> | null = null;
     let bump: ReturnType<typeof setTimeout> | null = null;
     let fade: ReturnType<typeof setTimeout> | null = null;
+    let connects = 0;
+    let failures = 0;
+    let stopped = false;
 
-    source.addEventListener("ready", () => setLive(true));
-    source.addEventListener("standings", (e) => {
-      try {
-        setLast(JSON.parse((e as MessageEvent).data) as StandingsEvent);
-      } catch {
-        // A malformed payload shouldn't stop the version bump below.
-      }
-      setPulse(true);
-      if (fade) clearTimeout(fade);
-      fade = setTimeout(() => setPulse(false), 1100);
-      // Coalesced: one Codeforces sync fires a burst of notifications, and
-      // re-fetching per event would hammer the database for no visual gain.
-      if (bump) clearTimeout(bump);
-      bump = setTimeout(() => setVersion((v) => v + 1), 400);
-    });
-    // EventSource reconnects on its own; we only reflect the state.
-    source.onerror = () => setLive(false);
+    const refresh = () => setVersion((v) => v + 1);
+
+    /*
+      Polling is the floor, not the plan. A host that caps a response's
+      duration, or a proxy that buffers text/event-stream, turns the SSE route
+      into a connect/fail loop; without this the board would simply stop
+      updating and look fine doing it. Slower than push, but never wrong for
+      longer than the interval.
+    */
+    const fallBackToPolling = () => {
+      if (poll || stopped) return;
+      source?.close();
+      source = null;
+      setLive(false);
+      poll = setInterval(() => {
+        if (document.visibilityState === "visible") refresh();
+      }, 20_000);
+    };
+
+    const connect = () => {
+      source = new EventSource("/api/guild/stream");
+
+      source.addEventListener("ready", () => {
+        setLive(true);
+        failures = 0;
+        connects += 1;
+        // Not on the first connect — that's the page load, and the server
+        // already rendered current data. Every *re*connect refetches, because
+        // whatever moved while the stream was down was never delivered and
+        // there's no replay.
+        if (connects > 1) refresh();
+      });
+
+      source.addEventListener("standings", (e) => {
+        try {
+          setLast(JSON.parse((e as MessageEvent).data) as StandingsEvent);
+        } catch {
+          // A malformed payload shouldn't stop the version bump below.
+        }
+        setPulse(true);
+        if (fade) clearTimeout(fade);
+        fade = setTimeout(() => setPulse(false), 1100);
+        // Coalesced: one Codeforces sync fires a burst of notifications, and
+        // re-fetching per event would hammer the database for no visual gain.
+        if (bump) clearTimeout(bump);
+        bump = setTimeout(refresh, 400);
+      });
+
+      source.onerror = () => {
+        setLive(false);
+        // A drop after a working connection is ordinary — the browser
+        // reconnects and the `ready` handler above catches up. Three failures
+        // with nothing in between means the stream isn't going to work here.
+        failures += 1;
+        if (failures >= 3 && connects === 0) fallBackToPolling();
+      };
+    };
+
+    connect();
+
+    // Coming back to a tab that slept through the interesting part.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
+      stopped = true;
       if (bump) clearTimeout(bump);
       if (fade) clearTimeout(fade);
-      source.close();
+      if (poll) clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisible);
+      source?.close();
     };
   }, [enabled]);
 

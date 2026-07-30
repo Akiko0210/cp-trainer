@@ -60,6 +60,19 @@ enum Config {
         UserDefaults.standard.set(base, forKey: "baseURL")
     }
 
+    /// Paired from Settings -> Menu bar app. The trainer requires a signed-in
+    /// user now that an install can be shared, and this app has no browser and
+    /// no cookie jar — so it carries a token of its own instead. Without one it
+    /// gets a 401 and shows a dash, which is the honest answer.
+    static var deviceToken: String? {
+        if let env = ProcessInfo.processInfo.environment["CP_TRAINER_TOKEN"],
+           !env.isEmpty {
+            return env
+        }
+        let stored = UserDefaults.standard.string(forKey: "deviceToken")
+        return (stored?.isEmpty == false) ? stored : nil
+    }
+
     static let pollInterval: TimeInterval = 5 * 60
 }
 
@@ -72,6 +85,9 @@ final class StreakController: NSObject, NSApplicationDelegate {
     private var payload: StreakPayload?
     private var reachableBase: String?
     private var lastError: String?
+    /// The server answered, but this app has no valid token — a different
+    /// problem from "can't reach it", and it needs a different instruction.
+    private var needsPairing = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -118,11 +134,18 @@ final class StreakController: NSObject, NSApplicationDelegate {
         var request = URLRequest(url: url)
         request.timeoutInterval = 4
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        if let token = Config.deviceToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            guard let http = response as? HTTPURLResponse else { return nil }
+            if http.statusCode == 401 {
+                needsPairing = true
                 return nil
             }
+            guard http.statusCode == 200 else { return nil }
+            needsPairing = false
             return try JSONDecoder().decode(StreakPayload.self, from: data)
         } catch {
             return nil
@@ -137,7 +160,12 @@ final class StreakController: NSObject, NSApplicationDelegate {
         let symbol: String
         let title: String
 
-        if lastError != nil, payload == nil {
+        if needsPairing {
+            // Reachable but unauthorised: a key, not a dash, so the fix is
+            // obvious from the menu bar alone.
+            symbol = "key"
+            title = ""
+        } else if lastError != nil, payload == nil {
             symbol = "flame"
             title = "–"
         } else if let p = payload {
@@ -165,6 +193,9 @@ final class StreakController: NSObject, NSApplicationDelegate {
     }
 
     private func tooltip() -> String {
+        if needsPairing {
+            return "Not paired — open Settings → Menu bar app in CP Trainer."
+        }
         if let error = lastError { return "\(error) — is the dev server running?" }
         guard let p = payload else { return "Loading…" }
         if p.current == 0 { return "No active streak. One solve starts one." }

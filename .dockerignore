@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.env
+.env.*
+!.env.example
+menubar/CPStreak.app
+menubar/.build
+worker/.venv
+worker/__pycache__
+worker/data
+**/__pycache__
+*.log
+.DS_Store
+.claude

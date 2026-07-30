@@ -1,6 +1,7 @@
 {
   "name": "cp-trainer",
   "version": "0.1.0",
+  "packageManager": "pnpm@9.15.3",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -13,7 +14,8 @@
     "db:migrate": "for f in db/migrations/*.sql; do echo \"-- $f\"; docker exec -i cp-trainer-pg psql -U cp -d cp_trainer -q -v ON_ERROR_STOP=1 < \"$f\" || exit 1; done",
     "seed": "cd worker && uv run python seed_usaco.py && uv run python seed_cf.py",
     "dev:all": "./scripts/dev.sh",
-    "seed:icpc": "cd worker && uv run python seed_icpc.py"
+    "seed:icpc": "cd worker && uv run python seed_icpc.py",
+    "db:deploy": "node scripts/migrate.mjs"
   },
   "dependencies": {
     "next": "16.2.10",
@@ -32,5 +34,11 @@
     "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp",
+      "unrs-resolver"
+    ]
   }
 }

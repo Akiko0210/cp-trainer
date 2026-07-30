@@ -16,15 +16,39 @@ import { Pool, types } from "pg";
 */
 types.setTypeParser(types.builtins.INT8, (value) => Number(value));
 
+export const DATABASE_URL =
+  process.env.DATABASE_URL ?? "postgresql://cp:cp@localhost:5488/cp_trainer";
+
+/*
+  TLS, decided explicitly rather than left to the driver.
+
+  Managed Postgres (Neon, Supabase, a platform addon) hands you a URL ending in
+  `?sslmode=require`, and the certificate is signed by a real CA — so verify it.
+  `sslmode=no-verify` is the escape hatch for a self-signed cert on a VM you own,
+  and it is spelled out in the URL so nobody disables verification by accident.
+*/
+function sslOption(): { rejectUnauthorized: boolean } | undefined {
+  const mode = /[?&]sslmode=([^&]+)/.exec(DATABASE_URL)?.[1];
+  if (!mode || mode === "disable") return undefined;
+  return { rejectUnauthorized: mode !== "no-verify" };
+}
+
 // One pool per server process (survives Next dev hot-reload via globalThis).
 const globalForPg = globalThis as unknown as { pgPool?: Pool };
 
 export const pool =
   globalForPg.pgPool ??
   new Pool({
-    connectionString:
-      process.env.DATABASE_URL ?? "postgresql://cp:cp@localhost:5488/cp_trainer",
-    max: 10,
+    connectionString: DATABASE_URL,
+    // Free Postgres tiers cap connections tightly and this app runs two
+    // processes; a pool that can grow past the cap turns a busy moment into
+    // "too many clients already" for everybody.
+    max: Number(process.env.PG_POOL_MAX ?? 8),
+    // A suspended free-tier database wakes on connect. Wait for it, but not
+    // forever — a request that hangs is worse than one that fails.
+    connectionTimeoutMillis: 10_000,
+    idleTimeoutMillis: 30_000,
+    ssl: sslOption(),
   });
 globalForPg.pgPool = pool;
 

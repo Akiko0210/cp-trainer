@@ -1,0 +1,24 @@
+# TLS, HTTP/2 and the reverse proxy in five lines. Caddy fetches and renews the
+# certificate itself, so there is no expiry to remember.
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# The live leaderboard is Server-Sent Events. A proxy that buffers the
+	# response holds every update until the buffer fills, which looks exactly
+	# like the feature being broken — so streaming responses pass straight
+	# through, and the read timeout has to outlive an idle stream.
+	@sse path /api/guild/stream
+	handle @sse {
+		reverse_proxy web:3000 {
+			flush_interval -1
+			transport http {
+				read_timeout 24h
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

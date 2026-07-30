@@ -1,0 +1,85 @@
+# The whole trainer on one machine: web, worker, Postgres, and Caddy for TLS.
+#
+# This is the deployment that keeps every feature intact — the live leaderboard
+# needs a process that stays up to hold its LISTEN connection and its SSE
+# streams, and the Codeforces mirror needs a loop that keeps running. A $0
+# always-free VM (Oracle Cloud) or any cheap box runs all of it.
+#
+#   cp .env.example .env      # fill in the secrets, set DOMAIN
+#   docker compose up -d --build
+#
+# Caddy gets a real certificate automatically from the DOMAIN below, so there
+# is no certbot step and nothing to renew by hand.
+
+name: cp-trainer
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: cp_trainer
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cp -d cp_trainer"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # No ports: — Postgres is reachable only from the other containers. The
+    # single most common way a hobby deployment gets owned is a database bound
+    # to 0.0.0.0 with a password someone typed in a hurry.
+
+  web:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://cp:${POSTGRES_PASSWORD}@db:5432/cp_trainer
+      WORKER_URL: http://worker:8787
+      WORKER_TOKEN: ${WORKER_TOKEN:?set WORKER_TOKEN in .env}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:?set GITHUB_CLIENT_ID in .env}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:?set GITHUB_CLIENT_SECRET in .env}
+      PUBLIC_ORIGIN: https://${DOMAIN:?set DOMAIN in .env}
+      ADMIN_GITHUB_LOGINS: ${ADMIN_GITHUB_LOGINS:-}
+    # The schema is idempotent, so bringing it up to date on every start is
+    # safe and removes a step somebody would otherwise forget.
+    command: sh -c "node scripts/migrate.mjs && node server.js"
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://cp:${POSTGRES_PASSWORD}@db:5432/cp_trainer
+      WORKER_TOKEN: ${WORKER_TOKEN}
+      SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-30}
+    # Also no ports: the worker is internal. Its endpoints re-sync any member's
+    # history and crawl Kattis, and the token is a second lock, not the first.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [web]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

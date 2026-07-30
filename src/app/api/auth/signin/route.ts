@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { authorizeUrl, oauthConfigured, safeNext } from "@/lib/auth";
+import { originOf } from "@/lib/http";
 
 // Kick off GitHub OAuth. The `state` value is stored in a short-lived cookie
 // and checked in the callback — that's the CSRF guard.
@@ -29,6 +30,6 @@ export async function GET(req: Request) {
     path: "/",
     maxAge: 600,
   });
-  const origin = new URL(req.url).origin;
+  const origin = originOf(req);
   return NextResponse.redirect(authorizeUrl(state, origin));
 }

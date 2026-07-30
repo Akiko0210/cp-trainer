@@ -10,7 +10,7 @@ export default async function SolvePage({
   searchParams: Promise<{ topic?: string }>;
 }) {
   const user = await getCurrentUser();
-  if (!user) redirect("/");
+  if (!user) redirect("/signin");
   const { topic } = await searchParams;
   const [topics, openAttempt] = await Promise.all([
     getPickerTopics(user.id),

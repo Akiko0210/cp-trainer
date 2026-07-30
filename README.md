@@ -88,6 +88,47 @@ few minutes; the dashboard shows progress).
   chosen, weak/stale topics (weighted by recent mistake concentration) pick
   the topic.
 
+## Groups: shared club leaderboards
+
+A group is a club — the first one being SJSU Competitive Programming. One
+person creates it, shares an eight-character invite code (no ambiguous
+characters, so it survives being read off a whiteboard), and everyone who joins
+appears on three boards:
+
+- **Ability** — the calibrated Rasch estimate, optionally narrowed to one topic
+  area. This is the honest "Elo": it can't be farmed by grinding easy problems,
+  because the fit prices what you fail as well as what you clear.
+- **Streak** — consecutive practice days.
+- **Solved · 30d** — recent volume.
+
+**The board is live.** Triggers on `submissions` and `topic_mastery`
+`pg_notify` a `standings` channel; one LISTEN connection per Node process fans
+out to an SSE stream per viewer (filtered server-side to that group's members),
+and the client re-fetches. When the order changes, rows **physically travel**
+from their old rank to the new one via FLIP, carrying a `▲2` / `▼1` badge for a
+few seconds, and your own row gets a ring pulse when you climb. Under
+`prefers-reduced-motion` rows cut instead of sliding and the badge holds still.
+
+### Auth
+
+Sign-in is **GitHub OAuth** — a club tool has no business storing other
+people's passwords, and every competitive programmer already has an account.
+Register an app at [github.com/settings/developers](https://github.com/settings/developers)
+with callback `http://localhost:3000/api/auth/callback`, then:
+
+```sh
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+```
+
+Until those exist, `next dev` offers **Continue as local user**, which signs
+you into the local account holding your mirrored history — so a solo install
+never needs an OAuth app. That route 404s in production or as soon as real
+credentials are set.
+
+Each member links their own Codeforces handle (one handle per member, enforced),
+and the worker syncs everyone on its schedule.
+
 ## Streak, and the menu bar readout
 
 The dashboard leads with the streak because the motivating moment isn't "you

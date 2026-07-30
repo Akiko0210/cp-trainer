@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import CategoryGrid from "@/components/CategoryGrid";
 import Onboarding from "@/components/Onboarding";
 import StreakHero from "@/components/StreakHero";
@@ -34,7 +35,11 @@ export default async function Dashboard() {
       </div>
     );
   }
-  if (!user) return <Onboarding />;
+  // No session at all -> sign in. Signed in but no Codeforces handle yet ->
+  // link one (Onboarding), which is now a step inside an account rather than
+  // the thing that creates the account.
+  if (!user) redirect("/signin");
+  if (!user.cf_handle) return <Onboarding />;
 
   const [sync, categories, overview, review, recent, activity, rec, streak] =
     await Promise.all([

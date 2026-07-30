@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 
 export default async function MistakesPage() {
   const user = await getCurrentUser();
-  if (!user) redirect("/");
+  if (!user) redirect("/signin");
 
   const [headline, tagCounts, matrix, trend, verdictTrend, failTopics, recent] =
     await Promise.all([

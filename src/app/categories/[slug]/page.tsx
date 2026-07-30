@@ -31,7 +31,7 @@ export default async function CategoryPage({
   const meta = CATEGORIES.find((c) => c.slug === slug);
   if (!meta) notFound();
   const user = await getCurrentUser();
-  if (!user) redirect("/");
+  if (!user) redirect("/signin");
 
   const catSlug = `cat-${slug}`;
   const topic = await getTopicDetail(user.id, catSlug);

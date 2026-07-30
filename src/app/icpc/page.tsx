@@ -29,7 +29,7 @@ export default async function IcpcPage({
   }>;
 }) {
   const user = await getCurrentUser();
-  if (!user) redirect("/");
+  if (!user) redirect("/signin");
   const sp = await searchParams;
   const year = sp.year ? Number(sp.year) : undefined;
 

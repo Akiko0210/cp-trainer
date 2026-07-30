@@ -264,3 +264,102 @@ body {
     opacity: 1 !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Leaderboard motion. Rank changes are the whole point of a live board, so a
+   row that moves must be *seen* to move — the FLIP transform is applied in
+   LeaderboardRows.tsx, and these are the accents around it.
+   --------------------------------------------------------------------------- */
+
+/* A row that just climbed: brief wash of the streak gradient. */
+@keyframes rank-climb {
+  0% {
+    background-color: color-mix(in oklab, var(--streak-a) 34%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* A row that just dropped: same shape, cooler and fainter — losing a place
+   should register without being punitive. */
+@keyframes rank-drop {
+  0% {
+    background-color: color-mix(in oklab, var(--muted) 22%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* The delta badge that appears beside a moved row, then leaves. */
+@keyframes delta-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.85);
+  }
+  18% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+/* "You just passed someone" — the one moment worth a flourish. */
+@keyframes you-climbed {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--streak-b) 60%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in oklab, var(--streak-b) 0%, transparent);
+  }
+}
+
+.rank-climb {
+  animation: rank-climb 1.6s ease-out;
+}
+.rank-drop {
+  animation: rank-drop 1.6s ease-out;
+}
+.delta-pop {
+  animation: delta-pop 2.4s ease-out forwards;
+}
+.you-climbed {
+  animation: you-climbed 1.2s ease-out 2;
+}
+
+/* The live-connection dot. */
+@keyframes live-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.live-dot {
+  animation: live-dot 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Rows still reorder — they just cut instead of sliding, and the delta badge
+     stays put long enough to read. */
+  .rank-climb,
+  .rank-drop,
+  .you-climbed,
+  .live-dot {
+    animation: none !important;
+  }
+  .delta-pop {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+}

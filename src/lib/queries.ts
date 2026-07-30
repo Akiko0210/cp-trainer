@@ -1,3 +1,4 @@
+import { getSessionUser } from "./auth";
 import { one, q } from "./db";
 
 // ---------- user ----------
@@ -16,9 +17,16 @@ export type User = {
   selection_offset: number | null;
 };
 
-// v1 UX assumes one user (schema is multi-tenant; every query below scopes by user_id).
+/**
+ * The signed-in user. Backed by the session cookie (src/lib/auth.ts) — v1's
+ * "first row in the table" shortcut is gone now that a club shares an install.
+ * Every query in this file already scopes by user_id, so nothing downstream
+ * changes.
+ */
 export async function getCurrentUser(): Promise<User | null> {
-  return one<User>("select * from users order by id limit 1");
+  const session = await getSessionUser();
+  if (!session) return null;
+  return one<User>("select * from users where id = $1", [session.id]);
 }
 
 // ---------- categories (the dashboard hero) ----------

@@ -13,7 +13,7 @@ export default async function SetPage({
 }) {
   const { slug } = await params;
   const user = await getCurrentUser();
-  if (!user) redirect("/");
+  if (!user) redirect("/signin");
 
   const detail = await getSetDetail(user.id, decodeURIComponent(slug));
   if (!detail) notFound();

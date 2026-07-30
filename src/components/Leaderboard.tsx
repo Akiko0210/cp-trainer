@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import Select from "@/components/Select";
-import type { GroupActivity, Standing } from "@/lib/group-queries";
+import { useGuildLive } from "./GuildLive";
+import Select from "./Select";
+import { Avatar, Crown } from "./guild-ui";
+import type { GuildActivity, Standing } from "@/lib/guild-queries";
 import { CATEGORIES, daysAgo } from "@/lib/taxonomy";
 
 /*
-  The live club leaderboard.
+  The live guild leaderboard.
 
   Two things make it feel alive rather than merely fresh:
 
@@ -15,19 +17,19 @@ import { CATEGORIES, daysAgo } from "@/lib/taxonomy";
      The row physically travels from its old rank to its new one, so a member
      watching sees the overtake happen instead of noticing a different list.
 
-  2. Deltas. A row that moved carries a "+2 / -1" badge for a couple of
+  2. Deltas. A row that moved carries a "▲2 / ▼1" badge for a couple of
      seconds, and your own row gets a ring pulse when you climb. Without that,
      a reorder you weren't staring at is invisible.
 
-  Data flow: fetch standings once, then an EventSource on the group's SSE
-  stream tells us something moved and we re-fetch. The server never pushes the
-  whole board — it pushes "user X changed", which keeps the payload tiny and
-  the ranking logic in one place (SQL).
+  Data flow: fetch standings, then re-fetch when the app-wide live stream
+  (GuildLive) says something moved. The server never pushes a whole board — it
+  pushes "member X moved", which keeps payloads tiny and leaves the ranking in
+  SQL, where it can't drift from the champions grid.
 */
 
 type Payload = {
   standings: Standing[];
-  activity: GroupActivity[];
+  activity: GuildActivity[];
 };
 
 const BOARDS = [
@@ -37,31 +39,25 @@ const BOARDS = [
 ] as const;
 
 export default function Leaderboard({
-  slug,
   meId,
   initial,
 }: {
-  slug: string;
   meId: number;
   initial: Payload;
 }) {
+  const { version, live, pulse } = useGuildLive();
   const [board, setBoard] = useState<string>("elo");
   const [category, setCategory] = useState<string>("");
   const [data, setData] = useState<Payload>(initial);
-  const [live, setLive] = useState(false);
-  const [flash, setFlash] = useState(false);
-
-  // Bumped by the live stream to request a re-fetch. Keeping it as a dep
-  // (rather than calling a fetcher from inside the stream handler) means every
-  // load goes through one code path with one cancellation rule.
-  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    // The initial payload is already the "elo, all topics, version 0" answer.
+    if (version === 0 && board === "elo" && !category) return;
     let cancelled = false;
     void (async () => {
       const params = new URLSearchParams({ board });
       if (category) params.set("category", category);
-      const res = await fetch(`/api/groups/${slug}/standings?${params}`);
+      const res = await fetch(`/api/guild/standings?${params}`);
       if (res.ok && !cancelled) setData(await res.json());
     })();
     // Guards against a slow response for the previous tab landing after a
@@ -69,31 +65,7 @@ export default function Leaderboard({
     return () => {
       cancelled = true;
     };
-  }, [slug, board, category, refreshKey]);
-
-  // Live updates. Coalesced: a Codeforces sync can fire many notifications in
-  // a burst, and re-fetching per event would hammer the DB for no visual gain.
-  useEffect(() => {
-    const source = new EventSource(`/api/groups/${slug}/stream`);
-    let pending: ReturnType<typeof setTimeout> | null = null;
-    let flashTimer: ReturnType<typeof setTimeout> | null = null;
-
-    source.addEventListener("ready", () => setLive(true));
-    source.addEventListener("standings", () => {
-      setFlash(true);
-      if (flashTimer) clearTimeout(flashTimer);
-      flashTimer = setTimeout(() => setFlash(false), 900);
-      if (pending) clearTimeout(pending);
-      pending = setTimeout(() => setRefreshKey((k) => k + 1), 400);
-    });
-    source.onerror = () => setLive(false);
-
-    return () => {
-      if (pending) clearTimeout(pending);
-      if (flashTimer) clearTimeout(flashTimer);
-      source.close();
-    };
-  }, [slug]);
+  }, [board, category, version]);
 
   const ranked = data.standings;
   const myRank = ranked.findIndex((s) => s.user_id === meId) + 1;
@@ -127,12 +99,12 @@ export default function Leaderboard({
 
         {board === "elo" && (
           <Select
-            ariaLabel="Narrow to a topic area"
+            ariaLabel="Narrow to one area"
             className="w-48"
             value={category}
             onChange={setCategory}
             options={[
-              { value: "", label: "All topics" },
+              { value: "", label: "All areas" },
               ...CATEGORIES.map((c) => ({
                 value: `cat-${c.slug}`,
                 label: c.name,
@@ -151,14 +123,10 @@ export default function Leaderboard({
         >
           <span
             className={`size-2 rounded-full ${live ? "live-dot" : ""}`}
-            style={{
-              backgroundColor: live ? "var(--ac)" : "var(--muted)",
-            }}
+            style={{ backgroundColor: live ? "var(--accent)" : "var(--muted)" }}
           />
           {live ? "Live" : "Offline"}
-          {flash && live && (
-            <span className="text-accent">· something moved</span>
-          )}
+          {pulse && live && <span className="text-accent">· something moved</span>}
         </span>
       </div>
 
@@ -233,6 +201,12 @@ function Rows({
     if (!container) return;
 
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // A background tab never runs requestAnimationFrame, so the "release" half
+    // of a FLIP would never fire: every moved row would sit at its inverted
+    // offset until the next update, and the viewer would come back to a list
+    // that looks shuffled. Nothing to animate for someone who isn't looking
+    // anyway — so when hidden, just take the new order.
+    const animate = !reduce && document.visibilityState === "visible";
     const moved = new Map<number, number>();
 
     for (const el of Array.from(container.children) as HTMLElement[]) {
@@ -244,7 +218,7 @@ function Rows({
       const top = el.offsetTop;
       const before = boxes.current.get(id);
 
-      if (before != null && Math.abs(before - top) > 1 && !reduce) {
+      if (before != null && Math.abs(before - top) > 1 && animate) {
         // Invert to the old position, then let it travel to the new one.
         el.style.transition = "none";
         el.style.transform = `translateY(${before - top}px)`;
@@ -264,14 +238,16 @@ function Rows({
     }
 
     if (moved.size > 0) {
-      // Deferred a frame: the badges are decoration on top of a layout pass
-      // that has already been measured, and writing state synchronously here
-      // would mean re-rendering mid-measurement.
-      const raf = requestAnimationFrame(() => setDeltas(moved));
-      const timer = setTimeout(() => setDeltas(new Map()), 2400);
+      // Deferred out of the layout pass: the badges are decoration on top of
+      // geometry that has already been measured, and writing state
+      // synchronously here would mean re-rendering mid-measurement. A timeout
+      // rather than requestAnimationFrame, so this still resolves in a
+      // background tab instead of leaving a badge pending until refocus.
+      const show = setTimeout(() => setDeltas(moved), 0);
+      const clear = setTimeout(() => setDeltas(new Map()), 2400);
       return () => {
-        cancelAnimationFrame(raf);
-        clearTimeout(timer);
+        clearTimeout(show);
+        clearTimeout(clear);
       };
     }
   }, [rows]);
@@ -319,9 +295,19 @@ function Rows({
                   {s.display_name ?? s.github_login ?? "Member"}
                   {isMe && <span className="ml-1.5 text-xs text-accent">you</span>}
                 </span>
-                {s.role !== "member" && (
+                {s.role && s.role !== "member" && (
                   <span className="rounded-md bg-card-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
                     {s.role}
+                  </span>
+                )}
+                {s.crowns > 0 && (
+                  <span
+                    className="num flex shrink-0 items-center gap-0.5 text-[11px] font-semibold"
+                    style={{ color: "var(--streak-b)" }}
+                    title={`Strongest in ${s.crowns} area${s.crowns === 1 ? "" : "s"}`}
+                  >
+                    <Crown size={11} />
+                    {s.crowns}
                   </span>
                 )}
               </div>
@@ -398,36 +384,5 @@ function Mini({ label, value }: { label: string; value: number }) {
       <div className="num text-sm font-medium leading-none">{value}</div>
       <div className="text-[10px] text-muted">{label}</div>
     </div>
-  );
-}
-
-function Avatar({
-  user,
-  size,
-}: {
-  user: { avatar_url?: string | null; display_name?: string | null };
-  size: number;
-}) {
-  const initial = (user.display_name ?? "?").trim().charAt(0).toUpperCase();
-  if (user.avatar_url) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={user.avatar_url}
-        alt=""
-        width={size}
-        height={size}
-        className="shrink-0 rounded-full"
-        style={{ width: size, height: size }}
-      />
-    );
-  }
-  return (
-    <span
-      className="grid shrink-0 place-items-center rounded-full bg-card-2 text-[11px] font-semibold text-muted"
-      style={{ width: size, height: size }}
-    >
-      {initial}
-    </span>
   );
 }

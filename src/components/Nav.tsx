@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import GuildChip from "./GuildChip";
 import ThemeToggle from "./ThemeToggle";
+import type { MyStanding } from "@/lib/guild-queries";
 
 const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/solve", label: "Solve" },
   { href: "/icpc", label: "ICPC" },
-  { href: "/groups", label: "Groups" },
+  { href: "/guild", label: "Guild" },
   { href: "/mistakes", label: "Mistakes" },
 ];
 
@@ -16,10 +18,14 @@ export default function Nav({
   handle,
   rating,
   rank,
+  guild,
+  standing,
 }: {
   handle: string | null;
   rating: number | null;
   rank: string | null;
+  guild: { slug: string; name: string; member_count: number } | null;
+  standing: MyStanding | null;
 }) {
   const pathname = usePathname();
   return (
@@ -59,6 +65,9 @@ export default function Nav({
         </nav>
 
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
+          {/* Your standing among your guild, on every page — same visual family
+              as the rating chip beside it, because it is the same kind of fact. */}
+          {guild && standing && <GuildChip guild={guild} standing={standing} />}
           {handle && (
             <Link
               href="/settings"

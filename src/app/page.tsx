@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import CategoryGrid from "@/components/CategoryGrid";
+import GuildMiniBoard from "@/components/GuildMiniBoard";
 import Onboarding from "@/components/Onboarding";
 import StreakHero from "@/components/StreakHero";
 import SyncBanner from "@/components/SyncBanner";
 import { Card, Empty, Label, StatTile, TrendMark, VerdictBadge } from "@/components/ui";
+import { getMyGuild, getStandings } from "@/lib/guild-queries";
 import type { DayActivity } from "@/lib/queries";
 import {
   getActivityStrip,
@@ -41,7 +43,7 @@ export default async function Dashboard() {
   if (!user) redirect("/signin");
   if (!user.cf_handle) return <Onboarding />;
 
-  const [sync, categories, overview, review, recent, activity, rec, streak] =
+  const [sync, categories, overview, review, recent, activity, rec, streak, guild] =
     await Promise.all([
       getSyncState(user.id),
       getCategories(user.id),
@@ -51,8 +53,12 @@ export default async function Dashboard() {
       getActivityStrip(user.id),
       recommend(user.id, null).catch(() => null),
       getStreak(user.id),
+      getMyGuild(user.id),
     ]);
 
+  // The guild board is on the dashboard, not only on /guild: standings you have
+  // to navigate to are standings you stop looking at.
+  const guildRows = guild ? await getStandings(guild.id, "elo") : [];
   const hasData = overview.submissions_total > 0;
 
   return (
@@ -99,7 +105,11 @@ export default async function Dashboard() {
         </Card>
       ) : (
         <div className="mb-4">
-          <CategoryGrid categories={categories} />
+          <CategoryGrid
+            categories={categories}
+            meId={user.id}
+            inGuild={!!guild}
+          />
         </div>
       )}
 
@@ -165,6 +175,14 @@ export default async function Dashboard() {
         </div>
 
         <div className="flex flex-col gap-4">
+          {guild && (
+            <GuildMiniBoard
+              meId={user.id}
+              guildName={guild.name}
+              initial={guildRows}
+            />
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <StatTile
               label="CF rating"

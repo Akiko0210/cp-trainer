@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSession, oauthConfigured } from "@/lib/auth";
+import { createSession, oauthConfigured, safeNext } from "@/lib/auth";
 import { one } from "@/lib/db";
 
 /*
@@ -34,7 +34,10 @@ export async function POST(req: Request) {
   }
 
   await createSession(user!.id, req.headers.get("user-agent") ?? undefined);
-  return NextResponse.redirect(new URL("/", new URL(req.url).origin));
+  const url = new URL(req.url);
+  return NextResponse.redirect(
+    new URL(safeNext(url.searchParams.get("next")), url.origin),
+  );
 }
 
 export async function GET(req: Request) {

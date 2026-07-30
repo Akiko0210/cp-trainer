@@ -335,6 +335,29 @@ body {
   animation: you-climbed 1.2s ease-out 2;
 }
 
+/* A crown changing hands. Longer and slower than a rank change on purpose: an
+   area title turns over rarely, and the card has to still be glowing when you
+   look up at it, not have finished announcing itself half a second earlier. */
+@keyframes crown-taken {
+  0% {
+    border-color: var(--streak-b);
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--streak-b) 55%, transparent);
+  }
+  12% {
+    box-shadow: 0 0 0 8px color-mix(in oklab, var(--streak-b) 0%, transparent);
+  }
+  70% {
+    border-color: var(--streak-b);
+  }
+  100% {
+    border-color: var(--line);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+.crown-taken {
+  animation: crown-taken 5s ease-out;
+}
+
 /* The live-connection dot. */
 @keyframes live-dot {
   0%,
@@ -357,6 +380,12 @@ body {
   .you-climbed,
   .live-dot {
     animation: none !important;
+  }
+  /* The takeover still needs to be visible without motion, so it keeps the
+     highlight border and drops only the pulse. */
+  .crown-taken {
+    animation: none !important;
+    border-color: var(--streak-b) !important;
   }
   .delta-pop {
     animation: none !important;

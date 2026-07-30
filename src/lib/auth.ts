@@ -179,6 +179,17 @@ export class UnauthorizedError extends Error {
   }
 }
 
+/**
+ * Sanitise a post-sign-in redirect target. Only same-site absolute paths are
+ * allowed: an open redirect here would let an invite link that looks like ours
+ * bounce a member straight out to somebody else's page after they authenticate.
+ * `//evil.example` is a protocol-relative URL, hence the second check.
+ */
+export function safeNext(value: string | null | undefined): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
+  return value;
+}
+
 export function newInviteCode(): string {
   // Ambiguity-free alphabet: no O/0, I/1, so a code read aloud in a club
   // meeting or written on a whiteboard survives the trip.

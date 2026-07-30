@@ -206,3 +206,144 @@ create table if not exists sync_state (
   message                   text,
   primary key (user_id, source)
 );
+
+-- ============================================================================
+-- Identity and guilds
+--
+-- v1 was single-user (`select * from users limit 1`). A shared leaderboard
+-- needs real identity: GitHub OAuth (no password hashes stored anywhere), a
+-- server-side session table, and a guild.
+--
+-- These are `alter`s rather than part of `create table users` above so that
+-- this file stays replayable over a database created by any earlier version —
+-- it is applied by `pnpm db:schema`, which existing installs also re-run.
+-- db/migrations/ holds the same changes as an ordered upgrade path.
+-- ============================================================================
+
+alter table users add column if not exists github_id        bigint;
+alter table users add column if not exists github_login     text;
+alter table users add column if not exists avatar_url       text;
+alter table users add column if not exists email            text;
+alter table users add column if not exists last_seen_at     timestamptz;
+-- Exactly one guild per person, so affiliation lives on the user row. That is
+-- what lets the guild appear on every page without asking which group is meant.
+alter table users add column if not exists guild_id         bigint;
+alter table users add column if not exists guild_role       text;
+alter table users add column if not exists guild_joined_at  timestamptz;
+
+-- Plain (not partial) unique index: Postgres already allows many NULLs in a
+-- unique index, and a PARTIAL index can't be inferred by
+-- `on conflict (github_id)`, which is exactly what the sign-in upsert uses.
+create unique index if not exists users_github_id on users (github_id);
+
+-- Opaque random token in an HTTP-only cookie; the row is the source of truth
+-- so a session can be revoked server-side.
+create table if not exists sessions (
+  token      text primary key,
+  user_id    bigint not null references users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  user_agent text
+);
+create index if not exists sessions_user on sessions (user_id);
+create index if not exists sessions_expiry on sessions (expires_at);
+
+create table if not exists guilds (
+  id          bigserial primary key,
+  slug        text unique not null,
+  name        text not null,
+  tagline     text,
+  invite_code text unique not null,
+  created_by  bigint references users(id) on delete set null,
+  created_at  timestamptz not null default now()
+);
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'users_guild_id_fkey') then
+    -- Deleting a guild empties it rather than deleting its people.
+    alter table users add constraint users_guild_id_fkey
+      foreign key (guild_id) references guilds(id) on delete set null;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'users_guild_role_check') then
+    alter table users add constraint users_guild_role_check
+      check (guild_role is null or guild_role in ('leader', 'officer', 'member'));
+  end if;
+end $$;
+
+create index if not exists users_guild on users (guild_id);
+
+-- --- real-time --------------------------------------------------------------
+-- Writers NOTIFY; the web app holds one LISTEN connection per Node process and
+-- fans out to its SSE streams (src/lib/realtime.ts). The worker therefore
+-- publishes to every open leaderboard without knowing the web app exists.
+-- Payloads name the guild so a stream can filter by it. No guild, no traffic.
+
+create or replace function notify_standings_change() returns trigger as $$
+declare
+  gid bigint;
+begin
+  select guild_id into gid from users where id = new.user_id;
+  if gid is null then return new; end if;
+  perform pg_notify('standings', json_build_object(
+    'type', 'mastery', 'guild_id', gid, 'user_id', new.user_id,
+    'topic_id', new.topic_id, 'score', new.score, 'estimate', new.rating_estimate
+  )::text);
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists topic_mastery_notify on topic_mastery;
+create trigger topic_mastery_notify
+  after insert or update on topic_mastery
+  for each row execute function notify_standings_change();
+
+create or replace function notify_solve() returns trigger as $$
+declare
+  gid bigint;
+begin
+  if new.verdict <> 'OK' then return new; end if;
+  select guild_id into gid from users where id = new.user_id;
+  if gid is null then return new; end if;
+  perform pg_notify('standings', json_build_object(
+    'type', 'solve', 'guild_id', gid, 'user_id', new.user_id,
+    'problem_id', new.problem_id
+  )::text);
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists submissions_notify on submissions;
+create trigger submissions_notify
+  after insert on submissions
+  for each row execute function notify_solve();
+
+create or replace function notify_roster_change() returns trigger as $$
+begin
+  if new.guild_id is not null then
+    perform pg_notify('standings', json_build_object(
+      'type', 'roster', 'guild_id', new.guild_id, 'user_id', new.id
+    )::text);
+  end if;
+  -- Someone leaving has to reach the guild they left, which is no longer on
+  -- their row — hence the second notify.
+  if tg_op = 'UPDATE'
+     and old.guild_id is not null
+     and old.guild_id is distinct from new.guild_id then
+    perform pg_notify('standings', json_build_object(
+      'type', 'roster', 'guild_id', old.guild_id, 'user_id', new.id
+    )::text);
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists users_guild_notify on users;
+-- Narrow WHEN clause: users rows are also touched by every sign-in
+-- (last_seen_at), and that must not wake up every open leaderboard.
+create trigger users_guild_notify
+  after update on users
+  for each row
+  when (old.guild_id is distinct from new.guild_id
+        or old.ability_estimate is distinct from new.ability_estimate)
+  execute function notify_roster_change();

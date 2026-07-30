@@ -1,17 +1,19 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getSessionUser, oauthConfigured } from "@/lib/auth";
+import { getSessionUser, oauthConfigured, safeNext } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string }>;
 }) {
-  if (await getSessionUser()) redirect("/");
-  const { error } = await searchParams;
+  const { error, next } = await searchParams;
+  // Already signed in: honour the invite link they arrived with.
+  if (await getSessionUser()) redirect(safeNext(next));
   const configured = oauthConfigured();
+  const query = next ? `?next=${encodeURIComponent(safeNext(next))}` : "";
 
   return (
     <div className="mx-auto mt-20 max-w-md">
@@ -30,7 +32,7 @@ export default async function SignInPage({
 
         {configured ? (
           <a
-            href="/api/auth/signin"
+            href={`/api/auth/signin${query}`}
             className="mt-6 flex items-center justify-center gap-2.5 rounded-xl bg-ink px-4 py-3 text-[15px] font-medium text-page transition-opacity hover:opacity-90"
           >
             <svg viewBox="0 0 16 16" className="size-4" fill="currentColor" aria-hidden>
@@ -41,7 +43,7 @@ export default async function SignInPage({
         ) : (
           <div className="mt-6 rounded-xl border border-line bg-page p-4 text-sm">
             <a
-              href="/api/auth/local"
+              href={`/api/auth/local${query}`}
               className="mb-4 flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-[15px] font-medium text-accent-ink hover:opacity-90"
             >
               Continue as local user

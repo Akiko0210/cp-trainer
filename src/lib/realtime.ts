@@ -3,19 +3,33 @@ import { Client } from "pg";
 /*
   Real-time fan-out.
 
-  Writers don't know or care who is watching: the migration puts triggers on
-  `submissions` and `topic_mastery` that `pg_notify('standings', …)`. The worker
-  syncing a member's Codeforces history therefore publishes automatically, with
-  no coupling between the Python service and the web app.
+  Writers don't know or care who is watching: the schema puts triggers on
+  `submissions`, `topic_mastery` and `users` that `pg_notify('standings', …)`.
+  The worker syncing a member's Codeforces history therefore publishes
+  automatically, with no coupling between the Python service and the web app.
 
   On this side we hold ONE dedicated LISTEN connection for the whole Node
   process and fan out to every subscribed SSE stream in memory. A connection per
   viewer would exhaust Postgres the moment a club actually used this.
 */
 
+/*
+  Every payload names the guild it belongs to, and a stream filters on that.
+  The earlier design filtered against the set of member ids read when the
+  viewer connected, which silently dropped events from anyone who joined
+  afterwards — they stayed invisible until a reload.
+*/
 export type StandingsEvent =
-  | { type: "mastery"; user_id: number; topic_id: number; score: number | null; estimate: number | null }
-  | { type: "solve"; user_id: number; problem_id: number | null };
+  | {
+      type: "mastery";
+      guild_id: number;
+      user_id: number;
+      topic_id: number;
+      score: number | null;
+      estimate: number | null;
+    }
+  | { type: "solve"; guild_id: number; user_id: number; problem_id: number | null }
+  | { type: "roster"; guild_id: number; user_id: number };
 
 type Subscriber = (event: StandingsEvent) => void;
 

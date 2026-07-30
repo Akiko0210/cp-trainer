@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import GuildCategoryBand from "@/components/GuildCategoryBand";
 import { Card, Empty, Label, TrendMark } from "@/components/ui";
+import { getMyGuild } from "@/lib/guild-queries";
 import {
   getCategoryModules,
   getCurrentUser,
@@ -38,9 +40,10 @@ export default async function CategoryPage({
   if (!topic) notFound();
 
   const target = Math.round(topic.rating_estimate ?? user.cf_rating ?? 1200) + 150;
-  const [modules, unsolved] = await Promise.all([
+  const [modules, unsolved, guild] = await Promise.all([
     getCategoryModules(user.id, catSlug),
     getUnsolvedInTopic(user.id, topic.id, target),
+    getMyGuild(user.id),
   ]);
 
   const color = categoryColor(slug);
@@ -158,6 +161,18 @@ export default async function CategoryPage({
           </div>
         )}
       </div>
+
+      {/* Who holds this area in your guild — the same store that draws the
+          crown on the dashboard card, so the two can't disagree. */}
+      {guild && (
+        <div className="mb-4 max-w-md">
+          <GuildCategoryBand
+            categorySlug={slug}
+            categoryName={meta.name}
+            meId={user.id}
+          />
+        </div>
+      )}
 
       {/* tier ladder */}
       <Card className="mb-4">

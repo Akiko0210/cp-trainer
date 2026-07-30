@@ -29,7 +29,8 @@ Postgres), `node` on PATH (the usaco.guide seed evaluates `ordering.ts`).
 ```sh
 pnpm install
 pnpm db          # start Postgres 16 in Docker on :5488 (persistent volume)
-pnpm db:schema   # apply db/schema.sql (idempotent)
+pnpm db:schema   # apply db/schema.sql (idempotent, and the whole schema)
+pnpm db:migrate  # only for a database created before a schema change
 pnpm seed        # topics + curated problems from usaco.guide, then CF problemset
 pnpm seed:icpc   # ICPC contest sets from open.kattis.com (~6 min, polite crawl)
 pnpm dev:all     # worker (:8787) + Next app (:3000) together
@@ -88,31 +89,62 @@ few minutes; the dashboard shows progress).
   chosen, weak/stale topics (weighted by recent mistake concentration) pick
   the topic.
 
-## Groups: shared club leaderboards
+## Guild: one club, and who holds what
 
-A group is a club — the first one being SJSU Competitive Programming. One
-person creates it, shares an eight-character invite code (no ambiguous
-characters, so it survives being read off a whiteboard), and everyone who joins
-appears on three boards:
+A guild is your club — the first being SJSU Competitive Programming. One person
+founds it and shares an eight-character invite code (no ambiguous characters, so
+it survives being read off a whiteboard) or the link that wraps it.
 
-- **Ability** — the calibrated Rasch estimate, optionally narrowed to one topic
-  area. This is the honest "Elo": it can't be farmed by grinding easy problems,
-  because the fit prices what you fail as well as what you clear.
-- **Streak** — consecutive practice days.
-- **Solved · 30d** — recent volume.
+**You belong to exactly one guild.** That constraint is the feature, not a
+restriction: because affiliation is single-valued it lives on `users.guild_id`,
+so "my guild" is never ambiguous and the standings can follow you around the app
+instead of sitting on a page you have to remember to open. They appear in four
+places, all fed by one stream and one champions store, so they can never
+disagree with each other:
 
-**The board is live.** Triggers on `submissions` and `topic_mastery`
-`pg_notify` a `standings` channel; one LISTEN connection per Node process fans
-out to an SSE stream per viewer (filtered server-side to that group's members),
-and the client re-fetches. When the order changes, rows **physically travel**
-from their old rank to the new one via FLIP, carrying a `▲2` / `▼1` badge for a
-few seconds, and your own row gets a ring pulse when you climb. Under
-`prefers-reduced-motion` rows cut instead of sliding and the badge holds still.
+- **the header chip**, on every page — your rank, your crowns, live
+- **every category card** on the dashboard — who holds that area
+- **the category page** — the holder, the runner-up, and how many points you are
+  from taking it
+- **`/guild`** — the champions grid and the full boards
+
+### Who holds what
+
+Eight areas, eight holders, ranked on the **per-area Rasch estimate** rather than
+the 0–100 heat score. Heat decays when you stop practising, and an area title
+should be lost to someone getting better, not to the holder taking a week off.
+A card names the holder, the runner-up, and where you sit; when a crown changes
+hands the card announces it for a few seconds rather than quietly showing a
+different name.
+
+The full boards are three: **Ability** (the calibrated Rasch estimate, optionally
+narrowed to one area — the honest "Elo", unfarmable by grinding easy problems
+because the fit prices what you fail as well as what you clear), **Streak**, and
+**Solved · 30d**.
+
+**Everything is live.** Triggers on `submissions`, `topic_mastery` and `users`
+`pg_notify` a `standings` channel with the guild in the payload; one LISTEN
+connection per Node process fans out to an SSE stream per viewer (filtered
+server-side by guild, so a member who joins while you're watching appears
+immediately), and one client-side stream per tab tells every guild surface to
+re-fetch. When the order changes, rows **physically travel** from their old rank
+to the new one via FLIP, carrying a `▲2` / `▼1` badge for a few seconds, and your
+own row gets a ring pulse when you climb. Under `prefers-reduced-motion` rows cut
+instead of sliding and the badge holds still; in a background tab the FLIP is
+skipped entirely, since `requestAnimationFrame` never fires there and a
+half-finished FLIP would leave the list looking shuffled.
+
+Leaving hands the guild to its longest-standing remaining member, so a club is
+never left with a code nobody can rotate.
 
 ### Auth
 
 Sign-in is **GitHub OAuth** — a club tool has no business storing other
 people's passwords, and every competitive programmer already has an account.
+An invite link survives it: the target is carried through the OAuth round trip
+in a cookie, so someone who wasn't signed in lands back on the invite rather
+than on the dashboard.
+
 Register an app at [github.com/settings/developers](https://github.com/settings/developers)
 with callback `http://localhost:3000/api/auth/callback`, then:
 
@@ -128,6 +160,12 @@ credentials are set.
 
 Each member links their own Codeforces handle (one handle per member, enforced),
 and the worker syncs everyone on its schedule.
+
+To see a populated guild before real members join, apply
+[db/seed-demo-guild.sql](db/seed-demo-guild.sql) — six demo members on real
+public Codeforces handles chosen near this account's own level, so the champions
+grid shows a contest rather than one grandmaster sweeping all eight areas. The
+file says how to remove them.
 
 ## Streak, and the menu bar readout
 

@@ -1,5 +1,5 @@
-import { getGroup, getGroupMemberIds } from "@/lib/group-queries";
 import { getSessionUser } from "@/lib/auth";
+import { getMyGuild } from "@/lib/guild-queries";
 import { subscribe } from "@/lib/realtime";
 
 export const dynamic = "force-dynamic";
@@ -9,27 +9,22 @@ export const dynamic = "force-dynamic";
   server→client, SSE survives proxies that mangle upgrades, and the browser
   reconnects on its own. One long-lived response per viewer.
 
-  Events are filtered to the group's own members here, server-side, so a
-  stream can never leak another club's activity.
+  Events are filtered to the viewer's own guild here, server-side, so a stream
+  can never leak another guild's activity. Filtering on the payload's guild_id
+  (rather than on a snapshot of member ids) means a member who joins while you
+  have the page open starts showing up immediately.
 */
-export async function GET(
-  req: Request,
-  { params }: { params: Promise<{ slug: string }> },
-) {
+export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user) return new Response("Sign in first.", { status: 401 });
 
-  const { slug } = await params;
-  const group = await getGroup(slug, user.id);
-  if (!group) return new Response("No such group.", { status: 404 });
-  if (!group.role) return new Response("Join the group first.", { status: 403 });
+  const guild = await getMyGuild(user.id);
+  if (!guild) return new Response("You're not in a guild.", { status: 404 });
 
-  // Coerced explicitly: this Set is compared against ids that arrive as JSON in
-  // a pg_notify payload, and it is what stops one club seeing another's
-  // activity — so the types on both sides must be beyond doubt here.
-  const memberIds = new Set(
-    (await getGroupMemberIds(group.id)).map((id) => Number(id)),
-  );
+  // Coerced explicitly. node-postgres hands back bigint as a *string*, and this
+  // comparison is the thing that stops one guild seeing another's activity, so
+  // the types on both sides must be beyond doubt.
+  const guildId = Number(guild.id);
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -46,10 +41,10 @@ export async function GET(
         }
       };
 
-      send("ready", { group: group.slug, members: memberIds.size });
+      send("ready", { guild: guild.slug, members: guild.member_count });
 
       const unsubscribe = await subscribe((ev) => {
-        if (!memberIds.has(Number(ev.user_id))) return;
+        if (Number(ev.guild_id) !== guildId) return;
         send("standings", ev);
       });
 

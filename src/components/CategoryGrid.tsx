@@ -1,4 +1,5 @@
 import Link from "next/link";
+import CrownBadge from "./CrownBadge";
 import type { CategoryMastery } from "@/lib/queries";
 import { categoryColor, daysAgo, heatLabel } from "@/lib/taxonomy";
 import { TrendMark } from "./ui";
@@ -7,12 +8,19 @@ import { TrendMark } from "./ui";
   The hero: 8 major ICPC areas, one comprehensive score each (current heat,
   0–100). Each card carries its category's identity color; clicking one opens
   the category's own practice page in that theme.
+
+  When you're in a guild, each card also names whoever currently holds that
+  area — see CrownBadge.
 */
 
 export default function CategoryGrid({
   categories,
+  meId,
+  inGuild,
 }: {
   categories: CategoryMastery[];
+  meId: number;
+  inGuild: boolean;
 }) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -78,6 +86,8 @@ export default function CategoryGrid({
                   : `${c.stale_modules} topics need review`}
               </div>
             )}
+
+            {inGuild && <CrownBadge categorySlug={c.slug} meId={meId} />}
           </Link>
         );
       })}

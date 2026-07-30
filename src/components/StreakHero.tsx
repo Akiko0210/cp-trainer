@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { FlameGlyph } from "./streak-ui";
 import type { DayActivity, Streak } from "@/lib/queries";
 
 /*
@@ -199,18 +200,12 @@ function Flame({ lit, atRisk }: { lit: boolean; atRisk: boolean }) {
         backgroundColor: lit ? "rgba(255,255,255,0.16)" : "var(--card-2)",
       }}
     >
-      <svg viewBox="0 0 24 24" className="size-8" aria-hidden>
-        <path
-          d="M12 2c.7 3.2-1.4 4.6-2.8 6.1C7.6 9.9 6 11.6 6 14.4A6 6 0 0 0 18 15c0-3.6-2.3-5.2-3.6-7.2-.6-.9-1-1.9-.9-3.1-1 .6-1.8 1.4-2.3 2.4C10.9 5.6 11.6 3.8 12 2Z"
-          fill={lit ? "var(--streak-ink)" : "var(--streak-dim)"}
-          opacity={lit ? 0.95 : 1}
-        />
-        <path
-          d="M12 12c.4 1.6-.7 2.3-1.4 3-.8.9-1.6 1.8-1.6 3.2A3 3 0 0 0 15 18.6c0-1.8-1.2-2.6-1.8-3.6-.3-.5-.5-1-.5-1.6-.5.3-.9.7-1.1 1.2-.1-.9.2-1.8.4-2.6Z"
-          fill={lit ? "var(--streak-b)" : "var(--card)"}
-          opacity={lit ? 0.65 : 1}
-        />
-      </svg>
+      <FlameGlyph
+        size={32}
+        outer={lit ? "var(--streak-ink)" : "var(--streak-dim)"}
+        outerOpacity={lit ? 0.95 : 1}
+        inner={lit ? "var(--streak-b)" : "var(--card)"}
+      />
     </span>
   );
 }

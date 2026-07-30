@@ -12,7 +12,7 @@ import {
   type Guild,
   type MyStanding,
 } from "@/lib/guild-queries";
-import { getCurrentUser } from "@/lib/queries";
+import { getCurrentUser, getStreak, type Streak } from "@/lib/queries";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-body" });
 const space = Space_Grotesk({ subsets: ["latin"], variable: "--font-space" });
@@ -34,10 +34,16 @@ export default async function RootLayout({
   let guild: Guild | null = null;
   let standing: MyStanding | null = null;
   let champions: CategoryChampions[] = [];
+  let streak: Streak | null = null;
   try {
     user = await getCurrentUser();
     if (user) {
-      guild = await getMyGuild(user.id);
+      // The streak is a header fixture now, so it loads with the shell rather
+      // than with the dashboard.
+      [guild, streak] = await Promise.all([
+        getMyGuild(user.id),
+        getStreak(user.id),
+      ]);
       if (guild) {
         // Loaded in the layout rather than per page: the guild follows you
         // around the app (the header chip, the crown on every category card),
@@ -78,6 +84,7 @@ export default async function RootLayout({
                   : null
               }
               standing={standing}
+              streak={streak}
             />
             <main className="mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6">
               {children}

@@ -176,8 +176,14 @@ states: **on fire** (today logged), **at risk** (alive, today still open — the
 one time the UI actively nags), and **cold**. A day counts if you made a
 Codeforces submission *or* ran a timed attempt, so ICPC work counts too.
 
-`menubar/` is a standalone macOS menu bar app — plain AppKit, no SwiftBar or
-xbar needed:
+The same three states sit in the site header on every page, as a chip: the
+streak gradient when today is logged, an outlined pulsing flame and `4!` when
+it's alive but today is still open, a quiet `0` when there's nothing to lose.
+It links to /solve, because from any page that isn't the dashboard the useful
+answer to seeing `4!` is to go and solve something.
+
+`menubar/` is the same readout outside the browser — a standalone macOS menu
+bar app, plain AppKit, no SwiftBar or xbar needed:
 
 ```sh
 cd menubar && ./build.sh && open CPStreak.app

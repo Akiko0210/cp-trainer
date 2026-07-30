@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import GuildChip from "./GuildChip";
+import StreakChip from "./StreakChip";
 import ThemeToggle from "./ThemeToggle";
 import type { MyStanding } from "@/lib/guild-queries";
+import type { Streak } from "@/lib/queries";
 
 const LINKS = [
   { href: "/", label: "Dashboard" },
@@ -20,12 +22,14 @@ export default function Nav({
   rank,
   guild,
   standing,
+  streak,
 }: {
   handle: string | null;
   rating: number | null;
   rank: string | null;
   guild: { slug: string; name: string; member_count: number } | null;
   standing: MyStanding | null;
+  streak: Streak | null;
 }) {
   const pathname = usePathname();
   return (
@@ -65,6 +69,8 @@ export default function Nav({
         </nav>
 
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
+          {/* Streak first: it's the one number here that can be lost today. */}
+          {streak && <StreakChip initial={streak} />}
           {/* Your standing among your guild, on every page — same visual family
               as the rating chip beside it, because it is the same kind of fact. */}
           {guild && standing && <GuildChip guild={guild} standing={standing} />}

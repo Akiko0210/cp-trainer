@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useGuildLive } from "./GuildLive";
 import Select from "./Select";
-import { Avatar, Crown } from "./guild-ui";
+import { Avatar, Crown, Medal } from "./guild-ui";
+import { useRankMotion } from "./useRankMotion";
 import type { GuildActivity, Standing } from "@/lib/guild-queries";
 import { CATEGORIES, daysAgo } from "@/lib/taxonomy";
 
@@ -190,67 +191,8 @@ function Rows({
   meId: number;
   board: string;
 }) {
-  const containerRef = useRef<HTMLOListElement>(null);
-  // Previous geometry and ranks, keyed by user, for the FLIP + delta badges.
-  const boxes = useRef<Map<number, number>>(new Map());
-  const prevRank = useRef<Map<number, number>>(new Map());
-  const [deltas, setDeltas] = useState<Map<number, number>>(new Map());
-
-  useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    // A background tab never runs requestAnimationFrame, so the "release" half
-    // of a FLIP would never fire: every moved row would sit at its inverted
-    // offset until the next update, and the viewer would come back to a list
-    // that looks shuffled. Nothing to animate for someone who isn't looking
-    // anyway — so when hidden, just take the new order.
-    const animate = !reduce && document.visibilityState === "visible";
-    const moved = new Map<number, number>();
-
-    for (const el of Array.from(container.children) as HTMLElement[]) {
-      const id = Number(el.dataset.userId);
-      // offsetTop, not getBoundingClientRect().top: the rect is viewport-
-      // relative, so any scroll between two renders would make every stored
-      // position stale and give every row a bogus transform. offsetTop is
-      // measured from the offset parent and is unaffected by scrolling.
-      const top = el.offsetTop;
-      const before = boxes.current.get(id);
-
-      if (before != null && Math.abs(before - top) > 1 && animate) {
-        // Invert to the old position, then let it travel to the new one.
-        el.style.transition = "none";
-        el.style.transform = `translateY(${before - top}px)`;
-        requestAnimationFrame(() => {
-          el.style.transition = "transform 620ms cubic-bezier(0.22, 1, 0.36, 1)";
-          el.style.transform = "";
-        });
-      }
-      boxes.current.set(id, top);
-
-      const rankNow = Number(el.dataset.rank);
-      const rankBefore = prevRank.current.get(id);
-      if (rankBefore != null && rankBefore !== rankNow) {
-        moved.set(id, rankBefore - rankNow); // positive = climbed
-      }
-      prevRank.current.set(id, rankNow);
-    }
-
-    if (moved.size > 0) {
-      // Deferred out of the layout pass: the badges are decoration on top of
-      // geometry that has already been measured, and writing state
-      // synchronously here would mean re-rendering mid-measurement. A timeout
-      // rather than requestAnimationFrame, so this still resolves in a
-      // background tab instead of leaving a badge pending until refocus.
-      const show = setTimeout(() => setDeltas(moved), 0);
-      const clear = setTimeout(() => setDeltas(new Map()), 2400);
-      return () => {
-        clearTimeout(show);
-        clearTimeout(clear);
-      };
-    }
-  }, [rows]);
+  // FLIP + delta badges, shared with the compact category board.
+  const { containerRef, deltas } = useRankMotion<HTMLOListElement>(rows);
 
   if (rows.length === 0) {
     return (
@@ -354,27 +296,6 @@ function Rows({
         );
       })}
     </ol>
-  );
-}
-
-function Medal({ rank }: { rank: number }) {
-  // Only the podium gets a treatment; ranks 4+ stay quiet so the top actually
-  // reads as the top.
-  const tone =
-    rank === 1
-      ? { bg: "var(--streak-b)", fg: "#fff" }
-      : rank === 2
-        ? { bg: "var(--streak-a)", fg: "#fff" }
-        : rank === 3
-          ? { bg: "var(--accent-soft)", fg: "var(--accent-dk)" }
-          : { bg: "transparent", fg: "var(--muted)" };
-  return (
-    <span
-      className="num grid size-7 shrink-0 place-items-center rounded-lg text-xs font-bold"
-      style={{ backgroundColor: tone.bg, color: tone.fg }}
-    >
-      {rank}
-    </span>
   );
 }
 

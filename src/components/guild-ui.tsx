@@ -93,6 +93,36 @@ export function Avatar({
   );
 }
 
+/**
+ * Rank marker. Only the podium gets a treatment; 4th and below stay quiet so
+ * the top actually reads as the top. Shared so the compact category board and
+ * the full standings agree on what 1st looks like.
+ */
+export function Medal({ rank, size = 28 }: { rank: number; size?: number }) {
+  const tone =
+    rank === 1
+      ? { bg: "var(--streak-b)", fg: "#fff" }
+      : rank === 2
+        ? { bg: "var(--streak-a)", fg: "#fff" }
+        : rank === 3
+          ? { bg: "var(--accent-soft)", fg: "var(--accent-dk)" }
+          : { bg: "transparent", fg: "var(--muted)" };
+  return (
+    <span
+      className="num grid shrink-0 place-items-center rounded-lg font-bold"
+      style={{
+        width: size,
+        height: size,
+        fontSize: size * 0.43,
+        backgroundColor: tone.bg,
+        color: tone.fg,
+      }}
+    >
+      {rank}
+    </span>
+  );
+}
+
 /** First name only — rosters get long and a card has one line to spend. */
 export function shortName(
   member: { display_name?: string | null; github_login?: string | null } | null,

@@ -104,8 +104,9 @@ disagree with each other:
 
 - **the header chip**, on every page — your rank, your crowns, live
 - **every category card** on the dashboard — who holds that area
-- **the category page** — the holder, the runner-up, and how many points you are
-  from taking it
+- **the category page** — the guild's top ten *in that area* beside the header,
+  with your own row pinned underneath at its real placement if you're below the
+  ten, and how many points you are from the crown
 - **`/guild`** — the champions grid and the full boards
 
 ### Who holds what

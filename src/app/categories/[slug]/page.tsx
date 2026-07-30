@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import GuildCategoryBand from "@/components/GuildCategoryBand";
+import GuildCategoryBoard from "@/components/GuildCategoryBoard";
 import { Card, Empty, Label, TrendMark } from "@/components/ui";
-import { getMyGuild } from "@/lib/guild-queries";
+import { getMyGuild, getStandings } from "@/lib/guild-queries";
 import {
   getCategoryModules,
   getCurrentUser,
@@ -45,6 +45,9 @@ export default async function CategoryPage({
     getUnsolvedInTopic(user.id, topic.id, target),
     getMyGuild(user.id),
   ]);
+  // Everyone in the guild, ranked in this area — the board shows ten and pins
+  // the viewer underneath if they're below that.
+  const guildRows = guild ? await getStandings(guild.id, "elo", catSlug) : [];
 
   const color = categoryColor(slug);
   const score = topic.score != null ? Math.round(topic.score) : null;
@@ -74,105 +77,110 @@ export default async function CategoryPage({
         <span className="text-ink">{meta.name}</span>
       </nav>
 
-      {/* header band in the category's color */}
+      {/* Header beside the guild's board for this area: the two questions a
+          category page answers are "how am I doing here" and "how am I doing
+          here compared to my guild", so they sit side by side. */}
       <div
-        className="mb-4 rounded-(--radius-card) border border-line p-6"
-        style={{
-          backgroundImage:
-            "linear-gradient(color-mix(in oklab, var(--cat) 10%, transparent), color-mix(in oklab, var(--cat) 3%, transparent))",
-        }}
+        className={`mb-4 grid items-start gap-4 ${
+          guild ? "lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]" : ""
+        }`}
       >
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-              {meta.blurb}
+        <div
+          className="rounded-(--radius-card) border border-line p-6"
+          style={{
+            backgroundImage:
+              "linear-gradient(color-mix(in oklab, var(--cat) 10%, transparent), color-mix(in oklab, var(--cat) 3%, transparent))",
+          }}
+        >
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
+                {meta.blurb}
+              </div>
+              <h1 className="font-display mt-1 text-[30px] font-semibold tracking-tight">
+                {meta.name}
+              </h1>
+              <div className="mt-3 flex items-baseline gap-3">
+                <span
+                  className="num text-[44px] font-bold leading-none"
+                  style={{ color }}
+                >
+                  {score ?? "—"}
+                </span>
+                <span className="text-sm text-muted">
+                  {heatLabel(topic.score)}
+                  {topic.rating_estimate != null && (
+                    <>
+                      {" "}
+                      · est{" "}
+                      <span className="num">{Math.round(topic.rating_estimate)}</span>
+                      {topic.estimate_se != null && (
+                        <span className="num text-muted/70">
+                          {" "}
+                          ±{Math.round(topic.estimate_se)}
+                        </span>
+                      )}
+                    </>
+                  )}
+                  <TrendMark trend={topic.trend} />
+                </span>
+              </div>
             </div>
-            <h1 className="font-display mt-1 text-[30px] font-semibold tracking-tight">
-              {meta.name}
-            </h1>
-            <div className="mt-3 flex items-baseline gap-3">
-              <span
-                className="num text-[44px] font-bold leading-none"
-                style={{ color }}
-              >
-                {score ?? "—"}
-              </span>
-              <span className="text-sm text-muted">
-                {heatLabel(topic.score)}
-                {topic.rating_estimate != null && (
-                  <>
-                    {" "}
-                    · est{" "}
-                    <span className="num">{Math.round(topic.rating_estimate)}</span>
-                    {topic.estimate_se != null && (
-                      <span className="num text-muted/70">
-                        {" "}
-                        ±{Math.round(topic.estimate_se)}
-                      </span>
-                    )}
-                  </>
-                )}
-                <TrendMark trend={topic.trend} />
-              </span>
-            </div>
+            <Link
+              href={`/solve?topic=${catSlug}`}
+              className="rounded-xl px-5 py-3 text-sm font-semibold text-white hover:opacity-90"
+              style={{ backgroundColor: color }}
+            >
+              Grind {meta.name}
+            </Link>
           </div>
-          <Link
-            href={`/solve?topic=${catSlug}`}
-            className="rounded-xl px-5 py-3 text-sm font-semibold text-white hover:opacity-90"
-            style={{ backgroundColor: color }}
-          >
-            Grind {meta.name}
-          </Link>
+
+          {anatomy && (
+            <div className="num mt-5 flex flex-wrap gap-x-6 gap-y-1 border-t border-line/70 pt-4 text-xs text-muted">
+              <span>
+                level <b className="text-ink">{Math.round(anatomy.level)}</b>
+                <span className="font-sans">
+                  {" "}
+                  (est vs your overall {Math.round(
+                    anatomy.your_level - anatomy.selection_offset,
+                  )})
+                </span>
+              </span>
+              <span aria-hidden>×</span>
+              <span>
+                evidence <b className="text-ink">{anatomy.evidence.toFixed(2)}</b>
+                <span className="font-sans">
+                  {" "}
+                  ({topic.recent_solve_count ?? 0} solves in 90d)
+                </span>
+              </span>
+              <span aria-hidden>×</span>
+              <span>
+                freshness <b className="text-ink">{anatomy.freshness.toFixed(2)}</b>
+                <span className="font-sans">
+                  {" "}
+                  {anatomy.idle_days != null && anatomy.idle_days > 30
+                    ? `(decaying — ${Math.round(anatomy.idle_days)}d since you touched it)`
+                    : "(fresh)"}
+                </span>
+              </span>
+              <span aria-hidden>=</span>
+              <span>
+                score <b style={{ color }}>{score}</b>
+              </span>
+            </div>
+          )}
         </div>
 
-        {anatomy && (
-          <div className="num mt-5 flex flex-wrap gap-x-6 gap-y-1 border-t border-line/70 pt-4 text-xs text-muted">
-            <span>
-              level <b className="text-ink">{Math.round(anatomy.level)}</b>
-              <span className="font-sans">
-                {" "}
-                (est vs your overall {Math.round(
-                  anatomy.your_level - anatomy.selection_offset,
-                )})
-              </span>
-            </span>
-            <span aria-hidden>×</span>
-            <span>
-              evidence <b className="text-ink">{anatomy.evidence.toFixed(2)}</b>
-              <span className="font-sans">
-                {" "}
-                ({topic.recent_solve_count ?? 0} solves in 90d)
-              </span>
-            </span>
-            <span aria-hidden>×</span>
-            <span>
-              freshness <b className="text-ink">{anatomy.freshness.toFixed(2)}</b>
-              <span className="font-sans">
-                {" "}
-                {anatomy.idle_days != null && anatomy.idle_days > 30
-                  ? `(decaying — ${Math.round(anatomy.idle_days)}d since you touched it)`
-                  : "(fresh)"}
-              </span>
-            </span>
-            <span aria-hidden>=</span>
-            <span>
-              score <b style={{ color }}>{score}</b>
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Who holds this area in your guild — the same store that draws the
-          crown on the dashboard card, so the two can't disagree. */}
-      {guild && (
-        <div className="mb-4 max-w-md">
-          <GuildCategoryBand
+        {guild && (
+          <GuildCategoryBoard
             categorySlug={slug}
             categoryName={meta.name}
             meId={user.id}
+            initial={guildRows}
           />
-        </div>
-      )}
+        )}
+      </div>
 
       {/* tier ladder */}
       <Card className="mb-4">

@@ -45,3 +45,6 @@ worker/.venv/
 worker/data/
 worker/__pycache__/
 **/__pycache__/
+
+# menubar build output (rebuild with menubar/build.sh)
+menubar/CPStreak.app/

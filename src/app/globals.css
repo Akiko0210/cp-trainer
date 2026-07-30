@@ -67,6 +67,14 @@
      category hues and from the indigo brand accent. */
   --icpc: #1e4fa3;
   --icpc-soft: #e8eef9;
+
+  /* Streak identity. A "flame" would normally be orange, but amber is the TLE
+     verdict — so the streak burns in the brand's violet→magenta instead,
+     which keeps verdict colors meaning only verdicts. */
+  --streak-a: #5d5fef;
+  --streak-b: #c026d3;
+  --streak-ink: #ffffff;
+  --streak-dim: #cbd2e0;
 }
 
 .dark {
@@ -121,6 +129,11 @@
 
   --icpc: #5b8dd9;
   --icpc-soft: #17233a;
+
+  --streak-a: #7b7df5;
+  --streak-b: #e055f0;
+  --streak-ink: #ffffff;
+  --streak-dim: #2a3242;
 }
 
 @theme inline {
@@ -181,6 +194,60 @@ body {
   color: var(--accent-ink);
 }
 
+/* ---------------------------------------------------------------------------
+   Streak hero motion. Three deliberate, slow effects only — a live streak
+   should feel warm, not busy. All of it stops under prefers-reduced-motion
+   (the block at the bottom of this file), where the band still reads correctly
+   because none of the meaning is carried by movement.
+   --------------------------------------------------------------------------- */
+
+/* A slow sheen crossing the band while the streak is alive. */
+@keyframes streak-sheen {
+  0% {
+    transform: translateX(-60%);
+  }
+  100% {
+    transform: translateX(160%);
+  }
+}
+
+/* Today's cell when the streak is alive but today isn't logged yet — the one
+   moment the UI should actively nag. */
+@keyframes streak-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+
+/* The flame's gentle breathing. */
+@keyframes streak-flicker {
+  0%,
+  100% {
+    transform: scale(1) rotate(-1deg);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.06) rotate(1deg);
+    filter: brightness(1.15);
+  }
+}
+
+.streak-sheen {
+  animation: streak-sheen 4.5s ease-in-out infinite;
+}
+.streak-pulse {
+  animation: streak-pulse 1.8s ease-in-out infinite;
+}
+.streak-flicker {
+  animation: streak-flicker 3s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -188,5 +255,12 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+  /* The sheen parks itself off-screen rather than frozen mid-band. */
+  .streak-sheen {
+    display: none;
+  }
+  .streak-pulse {
+    opacity: 1 !important;
   }
 }

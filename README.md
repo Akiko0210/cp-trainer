@@ -88,6 +88,33 @@ few minutes; the dashboard shows progress).
   chosen, weak/stale topics (weighted by recent mistake concentration) pick
   the topic.
 
+## Streak, and the menu bar readout
+
+The dashboard leads with the streak because the motivating moment isn't "you
+have a streak" — it's "your streak is alive and today is still open". Three
+states: **on fire** (today logged), **at risk** (alive, today still open — the
+one time the UI actively nags), and **cold**. A day counts if you made a
+Codeforces submission *or* ran a timed attempt, so ICPC work counts too.
+
+`menubar/` is a standalone macOS menu bar app — plain AppKit, no SwiftBar or
+xbar needed:
+
+```sh
+cd menubar && ./build.sh && open CPStreak.app
+```
+
+It polls [`/api/streak`](src/app/api/streak/route.ts) and shows a **filled
+flame + count** when today is logged, a **hollow flame + `5!`** when the streak
+is alive but today isn't, and a **dash** when the trainer isn't running (never
+a false zero). The dropdown has the streak, your best, the next milestone, a
+14-day strip, and shortcuts to solve or open the dashboard. To start it
+automatically: System Settings → General → Login Items → add `CPStreak.app`.
+It tries ports 3000 and 3001, or set one explicitly:
+
+```sh
+defaults write local.cptrainer.streak baseURL http://localhost:3001
+```
+
 ## ICPC practice (Kattis)
 
 171 real contest sets — World Finals, regionals, qualifiers — ingested from

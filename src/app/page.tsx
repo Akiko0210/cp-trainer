@@ -1,7 +1,7 @@
 import Link from "next/link";
 import CategoryGrid from "@/components/CategoryGrid";
 import Onboarding from "@/components/Onboarding";
-import StreakCard from "@/components/StreakCard";
+import StreakHero from "@/components/StreakHero";
 import SyncBanner from "@/components/SyncBanner";
 import { Card, Empty, Label, StatTile, TrendMark, VerdictBadge } from "@/components/ui";
 import type { DayActivity } from "@/lib/queries";
@@ -64,6 +64,8 @@ export default async function Dashboard() {
           </Link>
         </div>
       )}
+
+      {hasData && <StreakHero streak={streak} activity={activity} />}
 
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
@@ -204,8 +206,6 @@ export default async function Dashboard() {
               </ul>
             )}
           </Card>
-
-          <StreakCard streak={streak} activity={activity} />
 
           <Card>
             <Label>Last 8 weeks</Label>

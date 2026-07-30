@@ -128,6 +128,19 @@ export type Streak = {
   last_active: string | null;
 };
 
+// Something to aim at next. Once past the last ring, the target becomes the
+// user's own record — and past that, the next round hundred.
+export const STREAK_MILESTONES = [3, 7, 14, 30, 50, 100, 200, 365];
+
+export function nextMilestone(current: number, longest: number): number {
+  const ring = STREAK_MILESTONES.find((m) => m > current);
+  const beatBest = longest > current ? longest : null;
+  const candidates = [ring, beatBest].filter((n): n is number => n != null);
+  return candidates.length
+    ? Math.min(...candidates)
+    : (Math.floor(current / 100) + 1) * 100;
+}
+
 /*
   Practice streak: consecutive calendar days with any real practice — a
   Codeforces submission, or a timed attempt in the app (which is what counts

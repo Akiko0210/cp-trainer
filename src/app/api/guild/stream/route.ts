@@ -5,6 +5,17 @@ import { subscribe } from "@/lib/realtime";
 export const dynamic = "force-dynamic";
 
 /*
+  Ask for as long as the host will give us.
+
+  On a machine you own this is ignored and the stream lives until the browser
+  goes away. On a serverless host the default is around ten seconds, which
+  would mean a reconnect every ten seconds forever; 60 is the Hobby ceiling.
+  The client refetches on every reconnect (GuildLive.tsx), so a cut stream
+  costs a blink, not a missed event.
+*/
+export const maxDuration = 60;
+
+/*
   Server-Sent Events, not WebSockets: the leaderboard only ever needs
   server→client, SSE survives proxies that mangle upgrades, and the browser
   reconnects on its own. One long-lived response per viewer.

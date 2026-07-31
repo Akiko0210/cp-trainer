@@ -48,7 +48,18 @@ async function ensureListening(): Promise<void> {
 
   globalForRT.rtConnecting = (async () => {
     const client = new Client({
+      /*
+        The UNPOOLED url, when there is one.
+
+        Managed Postgres hands you two connection strings: a pooled one
+        (PgBouncer in transaction mode) and a direct one. `LISTEN` cannot work
+        through transaction pooling — the connection you registered the listener
+        on is handed to somebody else between statements, so notifications
+        silently never arrive. The board would look connected and simply never
+        move, which is the worst possible failure for this feature.
+      */
       connectionString:
+        process.env.DATABASE_URL_UNPOOLED ??
         process.env.DATABASE_URL ??
         "postgresql://cp:cp@localhost:5488/cp_trainer",
     });

@@ -1,0 +1,34 @@
+# Lint, types and a production build on every push.
+#
+# Worth having now that other people depend on the deployment: the failure this
+# catches is pushing something that builds on a laptop with a warm .next and
+# breaks in a clean checkout. No secrets — the build deliberately doesn't need
+# a database (see the NEXT_PHASE guard in src/lib/env.ts).
+
+name: CI
+
+on:
+  push:
+    branches: [main, guild]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # corepack honours `packageManager` in package.json, so CI uses the same
+      # pnpm that wrote the lockfile rather than whatever is newest.
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+      - run: pnpm exec tsc --noEmit
+      - run: pnpm build

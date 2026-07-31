@@ -26,23 +26,35 @@ Caddy, and Caddy gets you a real certificate automatically.
 Cost: $0. Trade: it's a machine you own — you apply updates, and you take the
 backups (one cron line, below).
 
-### Option B — Vercel (free) + Neon (free), no worker
+### Option B — Vercel (free) + Neon (free) + GitHub Actions
 
-Zero machines to run. Deploys from GitHub on push. The compromises are real
-and you should know them before choosing:
+Zero machines to run, deploys from GitHub on push, and closer to A than it
+first looks:
 
-- **Live updates degrade to polling.** Serverless caps how long a response can
-  stream. The app detects this and falls back to a 20-second poll, so the board
-  is *correct* but no longer instant — the crown-steal animation fires up to 20s
-  late. (Everything else is identical.)
-- **Nothing syncs on its own.** With no always-on worker, Codeforces history
-  only updates when someone presses *Sync now*, or from a scheduled GitHub
-  Action you'd add. Free Vercel cron runs once a day.
-- Neon's free database sleeps when idle; the first visitor after a quiet spell
-  waits a few seconds.
+- **Updates stay push, with a blink every minute.** A serverless host caps how
+  long a response may stream (60s on Hobby, which the stream route asks for).
+  So the SSE connection is cut on the minute and the browser reconnects — and
+  because the client refetches on every reconnect, nothing that happened during
+  the gap is missed. Between reconnects it is as instant as A. Polling at 20s
+  is only the floor, for a host or proxy where the stream never works at all.
+- **Syncing moves to a schedule.** `.github/workflows/sync.yml` runs the same
+  pass the worker's loop runs, hourly. Measured at ~25s for 6 members, so a
+  30-person club is ~2 minutes a run — about 1,500 of a private repo's 2,000
+  free Actions minutes a month. Half-hourly would not fit; hourly does.
+- Neon's free database sleeps when idle, so the first visitor after a quiet
+  spell waits a few seconds.
 
-If the club will mostly check standings a few times a day, B is fine. If you
-want the leaderboard to feel live during a practice session, take A.
+The real difference from A is not liveness, it is that a member's new solves
+appear within the hour rather than within half an hour, and that you are
+depending on three free tiers instead of one machine.
+
+**Two Neon settings that are not optional here:**
+
+1. `DATABASE_URL` → the **pooled** connection string, for ordinary queries.
+2. `DATABASE_URL_UNPOOLED` → the **direct** one. `LISTEN` cannot work through a
+   transaction pooler: the connection you registered the listener on gets handed
+   to someone else between statements and notifications silently never arrive.
+   With this unset on Neon, the board looks connected and never moves.
 
 ---
 
@@ -166,20 +178,37 @@ Migrations run on boot. The database volume is untouched by a rebuild.
 
 ## Option B: Vercel + Neon
 
-1. Create a Neon project; copy the pooled connection string (it ends in
-   `?sslmode=require`).
-2. Apply the schema from your laptop:
-   `DATABASE_URL='postgres://…' pnpm db:deploy`
-3. Import the repo into Vercel, branch `guild`. Set `DATABASE_URL`,
-   `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `WORKER_TOKEN` (any random
-   string — nothing will call the worker, but the app requires it to boot),
-   `PUBLIC_ORIGIN=https://your-app.vercel.app`, `ADMIN_GITHUB_LOGINS`.
-4. Register the OAuth app against the Vercel URL, as in step 1 above.
-5. Seed as in step 6, against the Neon URL directly.
-6. Syncing: members press **Sync now** in Settings. To automate it, add a
-   GitHub Action on a schedule that runs the worker's sync against
-   `DATABASE_URL` — the worker is a plain Python program and does not need to
-   be a service.
+1. **Neon**: create a project. From the dashboard copy *both* connection
+   strings — the pooled one (host contains `-pooler`) and the direct one.
+2. **Schema**, from your laptop, against the direct string:
+   ```sh
+   DATABASE_URL='postgresql://…neon.tech/neondb?sslmode=require' pnpm db:deploy
+   ```
+3. **Seed**, same URL, as in Option A step 6. Do this before anyone signs in —
+   it is the topic tree everything else refers to.
+4. **GitHub OAuth app** as in Option A step 1, with the callback
+   `https://your-app.vercel.app/api/auth/callback`. You can only know the URL
+   after step 5, so create the app now and fill the callback in after.
+5. **Vercel**: import the repo, set the production branch to `guild`, and add
+   these environment variables:
+
+   | name | value |
+   | --- | --- |
+   | `DATABASE_URL` | Neon **pooled** string |
+   | `DATABASE_URL_UNPOOLED` | Neon **direct** string |
+   | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | from step 4 |
+   | `WORKER_TOKEN` | any random string — nothing calls the worker here, but the app refuses to boot without it |
+   | `PUBLIC_ORIGIN` | `https://your-app.vercel.app` |
+   | `ADMIN_GITHUB_LOGINS` | your GitHub login |
+
+6. **Syncing**: add `DATABASE_URL` (the direct string) as a repository secret —
+   *Settings → Secrets and variables → Actions* — and the hourly workflow in
+   `.github/workflows/sync.yml` starts running. Trigger it once by hand from the
+   Actions tab to confirm it works before trusting the schedule. Members can
+   also press **Sync now** in Settings at any time.
+
+   Note: GitHub disables scheduled workflows in a repo with no pushes for 60
+   days. It emails first; one commit re-enables them.
 
 ---
 

@@ -117,9 +117,9 @@ docker compose logs -f web
 ```
 
 The web container applies the schema before it starts serving, so the first
-boot creates every table. If a required variable is missing it refuses to start
-and names it — that is deliberate; a half-configured deploy that *serves* is
-worse than one that doesn't.
+boot creates every table. If a required variable is missing, the startup check
+in `src/instrumentation.ts` logs **which one** — read the container log, not the
+page.
 
 Check: `curl https://cp.yourdomain.com/api/health` → `{"ok":true,…}`.
 
@@ -237,9 +237,20 @@ DATABASE_URL="$CPDB" pnpm seed
 DATABASE_URL="$CPDB" pnpm seed:icpc
 ```
 
-`db:deploy` prints the table count when it finishes. `seed` takes 2–3 minutes
-(topic tree, then Codeforces problem ratings); `seed:icpc` takes about six, one
-Kattis page every two seconds.
+`db:deploy` prints the table count when it finishes.
+
+**Budget an hour and a half for the seeds, and don't kill them.** Against a
+local Postgres they take about ten minutes; against a hosted one they are far
+slower, because each of ~14,000 problems is a separate round trip over the
+network. Measured against Neon us-east-2 from a laptop:
+
+| | local Docker | Neon |
+| --- | --- | --- |
+| `pnpm db:deploy` | instant | instant |
+| `pnpm seed` (topics, then CF problem ratings) | ~3 min | **67 min** |
+| `pnpm seed:icpc` (Kattis, 2s per page) | ~6 min | ~8 min |
+
+They are idempotent, so an interrupted run can simply be run again.
 
 **Do this before anyone signs in.** It is the skeleton every estimate,
 recommendation and category page hangs off. And **do not** run
@@ -251,6 +262,11 @@ club whose roster is meant to be real.
 
 **Decide the Vercel project name first**, because the callback URL contains it.
 A project named `cp-trainer` is served at `https://cp-trainer.vercel.app`.
+
+Watch for a suffix: if that name is taken across Vercel, you get something like
+`cp-trainer-three.vercel.app`, and a callback registered against the name you
+*intended* will fail every sign-in with a redirect-URI mismatch. Confirm the
+real domain on the project's page before you fill this in.
 
 <https://github.com/settings/developers> → **New OAuth App**
 
@@ -300,9 +316,25 @@ curl https://cp-trainer.vercel.app/api/health
 Expect `{"ok":true,"db_ms":…}`. `db_ms` above a second or two means Neon was
 asleep and has just woken, which is normal for the first request.
 
-If the deployment failed to start, read the Vercel runtime logs: the app
-refuses to boot with a missing variable **and names the one that is missing**.
-That is deliberate — a half-configured deploy that serves anyway is worse.
+If it answers `{"ok":false,"error":"database unreachable"}`, the cause is
+almost always missing environment variables — and it will **not** look like it.
+Next.js logs a failing instrumentation hook and then serves the app anyway, so
+the site comes up, `/signin` renders (it touches no database when you have no
+cookie), and only the health check fails. Meanwhile `src/lib/db.ts` has fallen
+back to its localhost default and is trying to reach `localhost:5488` from
+inside a Vercel function, which is refused in well under a second.
+
+A fast failure is the tell: a genuinely unreachable database takes the full
+10-second connection timeout.
+
+Read the real error at **Vercel → your project → Logs**, or with the Vercel MCP
+/ CLI. It names every variable that is missing:
+
+> `Missing required environment variable(s) in production: DATABASE_URL,
+> GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET`
+
+Then add them (below) and **redeploy** — environment variables only apply to
+deployments created after they were set.
 
 ### 6. Turn on the hourly sync
 

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="CP Trainer">
+  <!--
+    The header mark, as the tab icon: #5d5fef (--accent) square, white slashes.
+
+    The slashes are drawn as paths rather than set as text. A favicon is
+    rasterised at 16px, where a mono font's "//" turns to mush and depends on
+    whatever font the renderer happens to have; two parallelograms are the same
+    shape at every size and on every machine.
+
+    Fixed colours on purpose — a tab icon has no theme to follow, and the
+    indigo reads on both a light and a dark tab strip.
+  -->
+  <rect width="32" height="32" rx="9" fill="#5d5fef"/>
+  <path d="M7 24 L11 24 L16 8 L12 8 Z" fill="#ffffff"/>
+  <path d="M15 24 L19 24 L24 8 L20 8 Z" fill="#ffffff"/>
+</svg>

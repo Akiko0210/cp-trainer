@@ -29,8 +29,10 @@ Postgres), `node` on PATH (the usaco.guide seed evaluates `ordering.ts`).
 ```sh
 pnpm install
 pnpm db          # start Postgres 16 in Docker on :5488 (persistent volume)
-pnpm db:schema   # apply db/schema.sql (idempotent, and the whole schema)
+pnpm db:schema   # apply db/schema.sql to the Docker Postgres above
 pnpm db:migrate  # only for a database created before a schema change
+                 # (deploying? `DATABASE_URL=… pnpm db:deploy` does both, over
+                 #  the network, without needing psql installed)
 pnpm seed        # topics + curated problems from usaco.guide, then CF problemset
 pnpm seed:icpc   # ICPC contest sets from open.kattis.com (~6 min, polite crawl)
 pnpm dev:all     # worker (:8787) + Next app (:3000) together
@@ -43,10 +45,13 @@ few minutes; the dashboard shows progress).
 `pnpm worker` / `pnpm dev` run the two services separately. Config lives in
 `.env` (see [.env.example](.env.example)); the defaults match `pnpm db`.
 
-To put this in front of a club, see **[DEPLOY.md](DEPLOY.md)** — it covers the
-one free option that keeps every feature (a small always-on box running
-[docker-compose.yml](docker-compose.yml)) and the one that trades live updates
-for zero machines, with the trade spelled out rather than buried.
+To put this in front of a club, see **[DEPLOY.md](DEPLOY.md)**. Two free
+options: a small always-on box running [docker-compose.yml](docker-compose.yml),
+or Vercel + Neon with the sync on a GitHub Actions schedule. The second keeps
+push updates (the stream is cut at the platform's duration limit and the client
+refetches on reconnect) — what it actually trades away is sync *frequency*:
+hourly instead of every half hour, and no "Sync now" button, because there is no
+worker process to poke.
 
 ## How the numbers work
 
@@ -196,20 +201,31 @@ cd menubar && ./build.sh && open CPStreak.app
 
 It polls [`/api/streak`](src/app/api/streak/route.ts) and shows a **filled
 flame + count** when today is logged, a **hollow flame + `5!`** when the streak
-is alive but today isn't, and a **dash** when the trainer isn't running (never
+is alive but today isn't, and a **dash** when the trainer isn't reachable (never
 a false zero). The dropdown has the streak, your best, the next milestone, a
 14-day strip, and shortcuts to solve or open the dashboard. To start it
 automatically: System Settings → General → Login Items → add `CPStreak.app`.
-It tries ports 3000 and 3001, or set one explicitly:
+
+**It has to be paired.** The app is not a browser and can hold no cookie, so
+since sign-in became a requirement it authenticates with a token of its own:
+**Settings → Menu bar app → Pair the menu bar app**, then run the two lines it
+prints. Unpaired, it shows a **key** rather than a flame, which is the honest
+answer — it can reach the trainer but isn't allowed to read anything.
 
 ```sh
-defaults write local.cptrainer.streak baseURL http://localhost:3001
+defaults write local.cptrainer.streak baseURL https://your-deployment
+defaults write local.cptrainer.streak deviceToken <token from Settings>
 ```
+
+The token is an ordinary session row: it expires on its own, and pairing again
+replaces it.
 
 ## ICPC practice (Kattis)
 
-171 real contest sets — World Finals, regionals, qualifiers — ingested from
-open.kattis.com by [seed_icpc.py](worker/seed_icpc.py). Run a set as a **virtual
+165 real contest sets — World Finals, regionals, qualifiers — ingested from
+open.kattis.com by [seed_icpc.py](worker/seed_icpc.py). (The crawl finds 171
+sources; six are Code Jam and similar, dropped by the classifier in
+[icpc_taxonomy.py](worker/icpc_taxonomy.py).) Run a set as a **virtual
 contest**: one countdown clock over the whole set, one problem at a time, splits
 measured from the start, then an ICPC-style summary (solved count, penalty, per
 problem splits) with one-tap mistake tagging on the ones that got away.
@@ -229,5 +245,13 @@ corrupt a scale that is currently calibrated. Mistake tags from ICPC sessions
 
 ## Deliberately deferred (schema already accommodates)
 
-ICPC/NAC *curated* grind modes (a hand-built `contest → topic` mapping) and
-multi-user auth hardening. See the v1 handoff spec for details.
+- **ICPC/NAC curated grind modes** — a hand-built `contest → topic` mapping, so
+  a category page could recommend "the DP problems from past NAC sets".
+- **Shared virtual contests.** `contest_sessions.user_id` is a single person, so
+  a Kattis set is you against the clock. Making it a room several guildmates
+  share is the one feature where a leaderboard would be *genuinely* real-time —
+  every solve is written by this app rather than fetched from a judge, so it
+  reaches the other screens in well under a second with nothing to poll.
+
+Multi-user auth is no longer deferred: sign-in, sessions, per-device tokens and
+guild membership are all built. See the Guild and Auth sections above.

@@ -36,7 +36,7 @@ def _chunked(rows: list, params_per_row: int):
         yield rows[i : i + size]
 
 
-def _external_id(prob: dict) -> str | None:
+def external_id(prob: dict) -> str | None:
     """CF `problem` -> our catalog key, or None for problems that have none
     (the acmsguru archive carries no contestId/index)."""
     if "contestId" not in prob or "index" not in prob:
@@ -53,16 +53,16 @@ def upsert_problems(cur, probs: list[dict]) -> dict[str, int]:
     """
     rows: dict[str, tuple] = {}
     for prob in probs:
-        external_id = _external_id(prob)
-        if external_id is None:
+        key = external_id(prob)
+        if key is None:
             continue
         # Dedupe within the statement: `on conflict do update` raises "cannot
         # affect row a second time" if one VALUES list names the same conflict
         # target twice, and a page of submissions repeats problems constantly.
-        rows[external_id] = (
-            external_id,
+        rows[key] = (
+            key,
             prob["contestId"],
-            prob.get("name", external_id),
+            prob.get("name", key),
             f"https://codeforces.com/contest/{prob['contestId']}/problem/{prob['index']}",
             prob.get("rating"),
             prob.get("tags", []),
@@ -134,7 +134,7 @@ def write_page(cur, user_id: int, subs: list[dict], topic_ids: dict) -> None:
     seen: set[int] = set()
     for s in subs:
         prob = s.get("problem", {})
-        problem_id = problem_ids.get(_external_id(prob))
+        problem_id = problem_ids.get(external_id(prob))
         if problem_id is not None:
             for tag in prob.get("tags", []):
                 tid = topic_ids.get(tag)

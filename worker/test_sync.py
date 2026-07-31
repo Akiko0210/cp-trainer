@@ -130,18 +130,30 @@ def install(fake: FakeCF) -> FakeCF:
 
 
 class CountingCursor:
-    """Forwards to a real cursor, counting execute() calls."""
+    """Forwards to a real cursor, counting execute() calls. `box` lets several
+    cursors share one tally."""
 
-    def __init__(self, inner):
+    def __init__(self, inner, box=None):
         self._inner = inner
-        self.n = 0
+        self._box = [0] if box is None else box
+
+    @property
+    def n(self) -> int:
+        return self._box[0]
 
     def execute(self, *a, **kw):
-        self.n += 1
+        self._box[0] += 1
         return self._inner.execute(*a, **kw)
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
+
+    def __enter__(self):
+        self._inner.__enter__()
+        return self
+
+    def __exit__(self, *a):
+        return self._inner.__exit__(*a)
 
 
 # --- fixtures ---------------------------------------------------------------
@@ -389,6 +401,56 @@ async def test_cursor_survives_refit_failure(conn, user_id: int) -> None:
     check("retry reads one page", fake.status_calls, 1)
 
 
+class ConnProxy:
+    """Forwards to a real connection, handing out counting cursors."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self._box = [0]
+
+    @property
+    def n(self) -> int:
+        return self._box[0]
+
+    def cursor(self, *a, **kw):
+        return CountingCursor(self._inner.cursor(*a, **kw), self._box)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+async def test_seed_problemset(conn) -> None:
+    """The problemset seeder batches too — ~14,000 problems, one round trip
+    each, is the 67 minutes DEPLOY.md used to budget for."""
+    print("\nproblemset seed")
+    problems = [
+        PROBLEMS["A"],
+        PROBLEMS["B"],
+        PROBLEMS["A"],  # the set should not name one conflict target twice
+        {"name": "acmsguru relic"},  # no contestId/index, no catalog key
+    ]
+
+    async def fake(method, **params):
+        check("seed calls problemset.problems", method, "problemset.problems")
+        return {"problems": problems}
+
+    cf_api.call = fake
+    proxy = ConnProxy(conn)
+    n = await seed_cf.seed_problemset(proxy)
+
+    check("problems ingested", n, 2)
+    check_true("statements stay in single digits", proxy.n < 10)
+    with conn.cursor() as cur:
+        cur.execute("select count(*) as n from problem_catalog where contest_id = 1700")
+        check("catalog rows", cur.fetchone()["n"], 2)
+        cur.execute(
+            "select count(*) as n from problem_topics pt"
+            " join problem_catalog p on p.id = pt.problem_id"
+            " where p.contest_id = 1700 and pt.origin = 'cf_tag'"
+        )
+        check("cf_tag links", cur.fetchone()["n"], 3)
+
+
 def test_seeder_helpers(conn, user_id: int) -> None:
     """seed_cf imports the single-problem forms; they must still work."""
     print("\nsingle-problem helpers (used by seed_cf)")
@@ -458,6 +520,7 @@ async def main() -> int:
             await test_incremental(conn, user_id)
             await test_killed_walk_keeps_cursor(conn, user_id)
             await test_cursor_survives_refit_failure(conn, user_id)
+            await test_seed_problemset(conn)
             test_seeder_helpers(conn, user_id)
             await test_quick_leaves_cursor(conn, user_id)
         finally:

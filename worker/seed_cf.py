@@ -79,18 +79,25 @@ def tag_topic_ids(conn: psycopg.Connection) -> dict[str, int]:
 
 async def seed_problemset(conn: psycopg.Connection) -> int:
     """Ingest the full CF problemset into problem_catalog (+ cf_tag links)."""
-    from sync import link_cf_tags, upsert_problem  # avoid import cycle
+    # Batched for the same reason sync.py's page loop is: ~14,000 problems, one
+    # round trip each, is 67 minutes against a hosted Postgres and seconds when
+    # the whole set goes in a handful of statements.
+    from sync import external_id, link_cf_tags_batch, upsert_problems  # import cycle
 
     result = await cf_api.call("problemset.problems")
     problems = result["problems"]
     topic_ids = tag_topic_ids(conn)
-    n = 0
     with conn.cursor() as cur:
-        for prob in problems:
-            pid = upsert_problem(cur, prob)
-            if pid is not None:
-                link_cf_tags(cur, pid, prob.get("tags", []), topic_ids)
-                n += 1
+        ids = upsert_problems(cur, problems)
+        links = {
+            (ids[key], topic_ids[tag])
+            for prob in problems
+            if (key := external_id(prob)) in ids
+            for tag in prob.get("tags", [])
+            if topic_ids.get(tag)
+        }
+        link_cf_tags_batch(cur, links)
+    n = len(ids)
     conn.commit()
     log.info("problemset ingest: %s problems", n)
     return n

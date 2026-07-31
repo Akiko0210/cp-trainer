@@ -40,10 +40,11 @@ export const pool =
   globalForPg.pgPool ??
   new Pool({
     connectionString: DATABASE_URL,
-    // Free Postgres tiers cap connections tightly and this app runs two
-    // processes; a pool that can grow past the cap turns a busy moment into
-    // "too many clients already" for everybody.
-    max: Number(process.env.PG_POOL_MAX ?? 8),
+    // Free Postgres tiers cap connections tightly; a pool that can grow past
+    // the cap turns a busy moment into "too many clients already" for
+    // everybody. Serverless multiplies this — every warm instance holds its own
+    // pool — so it gets a much smaller one there.
+    max: Number(process.env.PG_POOL_MAX ?? (process.env.VERCEL ? 3 : 8)),
     // A suspended free-tier database wakes on connect. Wait for it, but not
     // forever — a request that hangs is worse than one that fails.
     connectionTimeoutMillis: 10_000,

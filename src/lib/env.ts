@@ -49,8 +49,20 @@ const REQUIRED_IN_PROD = [
   "DATABASE_URL",
   "GITHUB_CLIENT_ID",
   "GITHUB_CLIENT_SECRET",
-  "WORKER_TOKEN",
 ] as const;
+
+/**
+ * Is there a worker to talk to at all?
+ *
+ * On a serverless deployment there isn't: syncing runs on a schedule
+ * (.github/workflows/sync.yml) against the database directly, and nothing in
+ * the request path ever calls the worker. The app then has no business
+ * demanding a token for a service that doesn't exist, or offering a button
+ * that can only fail.
+ */
+export function workerConfigured(): boolean {
+  return !!process.env.WORKER_URL?.trim();
+}
 
 /**
  * Called from instrumentation.ts, so a misconfigured deploy dies at boot rather
@@ -62,7 +74,10 @@ export function assertProductionEnv(): void {
   // machine legitimately has no database or OAuth secret, and failing there
   // would make the image impossible to produce.
   if (process.env.NEXT_PHASE === "phase-production-build") return;
-  const missing = REQUIRED_IN_PROD.filter((k) => !process.env[k]?.trim());
+  const required: string[] = [...REQUIRED_IN_PROD];
+  // Coupled to the worker's existence rather than demanded unconditionally.
+  if (workerConfigured()) required.push("WORKER_TOKEN");
+  const missing = required.filter((k) => !process.env[k]?.trim());
   if (missing.length > 0) {
     throw new Error(
       `Missing required environment variable(s) in production: ${missing.join(", ")}. ` +

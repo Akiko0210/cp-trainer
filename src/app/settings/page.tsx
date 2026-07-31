@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { Card, Label } from "@/components/ui";
 import { one } from "@/lib/db";
+import { workerConfigured } from "@/lib/env";
 import { getCurrentUser, getSyncState } from "@/lib/queries";
 import PairDevice from "./PairDevice";
 import RefreshIcpc from "./RefreshIcpc";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function SettingsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
+  const worker = workerConfigured();
   const [sync, icpc] = await Promise.all([
     getSyncState(user.id),
     one<{ sets: number; problems: number }>(
@@ -69,10 +71,12 @@ export default async function SettingsPage() {
           </p>
         )}
         <div className="mt-4">
-          <SyncNow />
+          <SyncNow scheduled={!worker} />
         </div>
         <p className="mt-3 text-xs leading-relaxed text-muted">
-          The worker also syncs on its own every 30 minutes while running.
+          {worker
+            ? "The worker also syncs on its own every 30 minutes while running. "
+            : "Syncing runs hourly on a schedule. "}
           Solves made outside the app count too — the mirror is your full CF
           history.
         </p>
@@ -99,11 +103,11 @@ export default async function SettingsPage() {
           </dd>
         </dl>
         <div className="mt-4">
-          <RefreshIcpc />
+          <RefreshIcpc available={worker} />
         </div>
         <p className="mt-3 text-xs leading-relaxed text-muted">
-          Kattis publishes a new regional season about once a year, so this is a
-          manual refresh rather than a schedule. Kattis has no public API and
+          Kattis publishes a new regional season about once a year, so this is
+          a manual refresh rather than a schedule. Kattis has no public API and
           disallows profile scraping, so your solves there are recorded by the
           app&apos;s own timer, never mirrored.
         </p>

@@ -176,16 +176,27 @@ Migrations run on boot. The database volume is untouched by a rebuild.
 
 ---
 
-## Option B: Vercel + Neon
+## Option B: the runbook (Vercel + Neon + Actions)
 
-1. **Neon**: create a project. From the dashboard copy *both* connection
-   strings — the pooled one (host contains `-pooler`) and the direct one.
+Order matters in one place only: seed the database before anyone signs in.
+Everything else can be done in any order.
+
+1. **Neon**: create a project. Put it in the region nearest your Vercel one —
+   the default for both is US East, and a mismatched pair adds a cross-country
+   round trip to *every* query on *every* page. From the dashboard copy **both**
+   connection strings: the pooled one (its host contains `-pooler`) and the
+   direct one.
 2. **Schema**, from your laptop, against the direct string:
    ```sh
    DATABASE_URL='postgresql://…neon.tech/neondb?sslmode=require' pnpm db:deploy
    ```
-3. **Seed**, same URL, as in Option A step 6. Do this before anyone signs in —
-   it is the topic tree everything else refers to.
+3. **Seed**, same URL, as in Option A step 6 — the usaco.guide topic tree, the
+   Codeforces problem ratings, and the Kattis ICPC sets. Do this before anyone
+   signs in: it is the skeleton every estimate and recommendation hangs off.
+
+   **Do not** run `db/seed-demo-guild.sql` against production. It invents six
+   members on other people's Codeforces handles, which is fine on a laptop and
+   confusing in a club where the roster is supposed to be real.
 4. **GitHub OAuth app** as in Option A step 1, with the callback
    `https://your-app.vercel.app/api/auth/callback`. You can only know the URL
    after step 5, so create the app now and fill the callback in after.
@@ -204,11 +215,33 @@ Migrations run on boot. The database volume is untouched by a rebuild.
 6. **Syncing**: add `DATABASE_URL` (the direct string) as a repository secret —
    *Settings → Secrets and variables → Actions* — and the hourly workflow in
    `.github/workflows/sync.yml` starts running. Trigger it once by hand from the
-   Actions tab to confirm it works before trusting the schedule. Members can
-   also press **Sync now** in Settings at any time.
+   Actions tab to confirm it works before trusting the schedule.
+
+   There is no *Sync now* button on this deployment — there's no worker process
+   to poke, so Settings says "syncing runs hourly" instead of offering a control
+   that could only fail. Trigger the workflow by hand if someone needs their
+   solves counted immediately.
 
    Note: GitHub disables scheduled workflows in a repo with no pushes for 60
    days. It emails first; one commit re-enables them.
+
+7. **Sign in, and take the install.** The first account is the operator (or set
+   `ADMIN_GITHUB_LOGINS`). Link your Codeforces handle, create the guild, then
+   share the invite **link** rather than the bare code — it survives the GitHub
+   round trip, so a member who has never used the app lands back on the invite
+   instead of on the dashboard.
+
+### What to watch on the free tiers
+
+| | limit | what it looks like when you hit it |
+| --- | --- | --- |
+| Neon storage | 0.5 GB | writes start failing; your database is ~31 MB with 6 members, so it is roughly 5–10 MB per active member |
+| Neon direct connections | one per open live stream | the board stops updating for late arrivals; only a concern above ~20 people watching at once |
+| Actions minutes | 2,000/mo on a private repo | syncs silently stop part-way through the month — hourly at ~2 min/run is ~1,500 |
+| Neon idle suspend | — | first visitor after a quiet spell waits a few seconds |
+
+Making the repo public would give unlimited Actions minutes, at the cost of the
+repo being public.
 
 ---
 

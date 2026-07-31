@@ -13,7 +13,9 @@ import type { NextConfig } from "next";
   were on to Codeforces or Kattis when you click through to a problem.
 */
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Self-hosting only. Vercel builds its own bundle and setting this there just
+  // produces a second copy of the server nobody runs.
+  output: process.env.VERCEL ? undefined : "standalone",
   poweredByHeader: false,
 
   async headers() {

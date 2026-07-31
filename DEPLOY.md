@@ -178,58 +178,192 @@ Migrations run on boot. The database volume is untouched by a rebuild.
 
 ## Option B: the runbook (Vercel + Neon + Actions)
 
-Order matters in one place only: seed the database before anyone signs in.
-Everything else can be done in any order.
+About 30 minutes. Three accounts, no card. Do the steps in order — two of them
+have a dependency that is easy to miss, and both are called out where they bite.
 
-1. **Neon**: create a project. Put it in the region nearest your Vercel one —
-   the default for both is US East, and a mismatched pair adds a cross-country
-   round trip to *every* query on *every* page. From the dashboard copy **both**
-   connection strings: the pooled one (its host contains `-pooler`) and the
-   direct one.
-2. **Schema**, from your laptop, against the direct string:
-   ```sh
-   DATABASE_URL='postgresql://…neon.tech/neondb?sslmode=require' pnpm db:deploy
-   ```
-3. **Seed**, same URL, as in Option A step 6 — the usaco.guide topic tree, the
-   Codeforces problem ratings, and the Kattis ICPC sets. Do this before anyone
-   signs in: it is the skeleton every estimate and recommendation hangs off.
+### 0. The repo has to be on the account you will connect to Vercel
 
-   **Do not** run `db/seed-demo-guild.sql` against production. It invents six
-   members on other people's Codeforces handles, which is fine on a laptop and
-   confusing in a club where the roster is supposed to be real.
-4. **GitHub OAuth app** as in Option A step 1, with the callback
-   `https://your-app.vercel.app/api/auth/callback`. You can only know the URL
-   after step 5, so create the app now and fill the callback in after.
-5. **Vercel**: import the repo, set the production branch to `guild`, and add
-   these environment variables:
+Vercel only offers you repositories from the GitHub account you link it to.
+Check which account owns yours:
 
-   | name | value |
-   | --- | --- |
-   | `DATABASE_URL` | Neon **pooled** string |
-   | `DATABASE_URL_UNPOOLED` | Neon **direct** string |
-   | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | from step 4 |
-   | `WORKER_TOKEN` | any random string — nothing calls the worker here, but the app refuses to boot without it |
-   | `PUBLIC_ORIGIN` | `https://your-app.vercel.app` |
-   | `ADMIN_GITHUB_LOGINS` | your GitHub login |
+```sh
+gh api user --jq .login          # who the CLI is
+git remote -v                    # where pushes go
+```
 
-6. **Syncing**: add `DATABASE_URL` (the direct string) as a repository secret —
-   *Settings → Secrets and variables → Actions* — and the hourly workflow in
-   `.github/workflows/sync.yml` starts running. Trigger it once by hand from the
-   Actions tab to confirm it works before trusting the schedule.
+If those disagree with the account you intend to use, fix it before going
+further:
 
-   There is no *Sync now* button on this deployment — there's no worker process
-   to poke, so Settings says "syncing runs hourly" instead of offering a control
-   that could only fail. Trigger the workflow by hand if someone needs their
-   solves counted immediately.
+```sh
+gh auth logout && gh auth login                       # sign in as the right one
+gh repo create <you>/cp-trainer --private
+git remote set-url origin https://github.com/<you>/cp-trainer.git
+git push origin main guild group icpc-practice
+```
 
-   Note: GitHub disables scheduled workflows in a repo with no pushes for 60
-   days. It emails first; one commit re-enables them.
+### 1. Neon
 
-7. **Sign in, and take the install.** The first account is the operator (or set
-   `ADMIN_GITHUB_LOGINS`). Link your Codeforces handle, create the guild, then
-   share the invite **link** rather than the bare code — it survives the GitHub
-   round trip, so a member who has never used the app lands back on the invite
-   instead of on the dashboard.
+Create a project. **Put it in the region nearest the one Vercel will use** —
+both default to US East, and a mismatched pair adds a cross-country round trip
+to every query on every page load.
+
+From the dashboard, copy **both** connection strings:
+
+- the **pooled** one — its host contains `-pooler`
+- the **direct** one
+
+You need both. They are not interchangeable: `LISTEN` cannot work through a
+transaction pooler, so the live leaderboard gets the direct one while everything
+else uses the pooled one.
+
+### 2. Schema and seed, from your laptop
+
+Nothing on Vercel runs these — the seeds need a large usaco.guide clone that is
+deliberately not deployed, and the schema is applied deliberately rather than on
+every boot.
+
+Use the **direct** string here — the host must NOT contain `-pooler`:
+
+```sh
+export CPDB='postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require'
+```
+```sh
+DATABASE_URL="$CPDB" pnpm db:deploy
+```
+```sh
+DATABASE_URL="$CPDB" pnpm seed
+```
+```sh
+DATABASE_URL="$CPDB" pnpm seed:icpc
+```
+
+`db:deploy` prints the table count when it finishes. `seed` takes 2–3 minutes
+(topic tree, then Codeforces problem ratings); `seed:icpc` takes about six, one
+Kattis page every two seconds.
+
+**Do this before anyone signs in.** It is the skeleton every estimate,
+recommendation and category page hangs off. And **do not** run
+`db/seed-demo-guild.sql` against production — it invents six members on
+strangers' Codeforces handles, which is useful on a laptop and confusing in a
+club whose roster is meant to be real.
+
+### 3. GitHub OAuth app
+
+**Decide the Vercel project name first**, because the callback URL contains it.
+A project named `cp-trainer` is served at `https://cp-trainer.vercel.app`.
+
+<https://github.com/settings/developers> → **New OAuth App**
+
+- Application name: anything
+- Homepage URL: `https://cp-trainer.vercel.app`
+- **Authorization callback URL:** `https://cp-trainer.vercel.app/api/auth/callback`
+
+Copy the client ID, then **Generate a new client secret** and copy that too — it
+is shown once.
+
+Two things worth knowing: an OAuth app has exactly **one** callback URL, so
+sign-in works on the production URL only and not on Vercel's per-commit preview
+URLs. And the callback is editable at any time, so if the deployed URL turns out
+different, come back and change it.
+
+### 4. Vercel
+
+**Add New → Project → Import** your repository (connect the GitHub account from
+step 0). Then, before deploying:
+
+- **Project name**: the one you used in step 3
+- **Framework**: Next.js, detected automatically — change nothing
+- **Production branch**: `main`
+- **Environment variables** — add these to *Production*:
+
+| name | value |
+| --- | --- |
+| `DATABASE_URL` | Neon **pooled** string |
+| `DATABASE_URL_UNPOOLED` | Neon **direct** string |
+| `GITHUB_CLIENT_ID` | from step 3 |
+| `GITHUB_CLIENT_SECRET` | from step 3 |
+| `PUBLIC_ORIGIN` | `https://cp-trainer.vercel.app` |
+| `ADMIN_GITHUB_LOGINS` | your GitHub login |
+
+There is no `WORKER_URL` and no `WORKER_TOKEN` here on purpose: this deployment
+has no worker process, and the app only demands a worker token when a worker is
+actually configured.
+
+Then **Deploy**.
+
+### 5. Check it actually came up
+
+```sh
+curl https://cp-trainer.vercel.app/api/health
+```
+
+Expect `{"ok":true,"db_ms":…}`. `db_ms` above a second or two means Neon was
+asleep and has just woken, which is normal for the first request.
+
+If the deployment failed to start, read the Vercel runtime logs: the app
+refuses to boot with a missing variable **and names the one that is missing**.
+That is deliberate — a half-configured deploy that serves anyway is worse.
+
+### 6. Turn on the hourly sync
+
+In the repository: **Settings → Secrets and variables → Actions → New repository
+secret**
+
+- Name: `DATABASE_URL`
+- Value: the Neon **direct** string
+
+Then **Actions → Sync Codeforces → Run workflow** and watch it finish before you
+trust the schedule. It should report `N ok, 0 failed`.
+
+There is no *Sync now* button on this deployment — no worker process to poke —
+so Settings says "syncing runs hourly" instead of offering a control that could
+only fail. Run this workflow by hand when someone needs their solves counted
+immediately.
+
+Note: GitHub disables scheduled workflows in a repository with no pushes for 60
+days. It emails first, and one commit re-enables them — but over a summer break
+that is exactly how a club tool quietly stops updating.
+
+### 7. Take the install, then open it up
+
+Visit the URL, **Sign in with GitHub**, and link your Codeforces handle. The
+first account is the operator (or whoever `ADMIN_GITHUB_LOGINS` names).
+
+Create the guild, then share the invite **link** rather than the bare code — the
+link survives the GitHub round trip, so a member who has never used the app
+lands back on the invite after authorising instead of on a dashboard with no
+guild.
+
+Each member: sign in → link their handle → they appear on the boards after the
+next hourly sync. A first sync of a long history takes a couple of minutes
+inside that run.
+
+### 8. Menu bar app, if you want it (macOS, optional)
+
+**Settings → Menu bar app → Pair the menu bar app**, then run the two `defaults
+write` lines it gives you — they point the app at the deployed URL and give it
+its own token. Rebuild with `cd menubar && ./build.sh`.
+
+---
+
+## Shipping changes after the first deploy
+
+Push to `main`; Vercel builds and promotes automatically.
+
+**Migrations are the exception — nothing runs them for you.** When a change
+touches `db/`, apply it yourself, before or immediately after the deploy:
+
+```sh
+DATABASE_URL="$CPDB" pnpm db:deploy
+```
+
+(You can automate this by setting Vercel's build command to
+`node scripts/migrate.mjs && next build`, but then every preview build migrates
+your production database too — which is why it is not the default.)
+
+**Rolling back** the app is instant: Vercel → Deployments → the previous one →
+**Promote to Production**. Rolling back the *database* is not — Neon keeps a
+short restore history, so check what your plan retains before you need it.
 
 ### What to watch on the free tiers
 

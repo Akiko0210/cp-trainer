@@ -367,8 +367,11 @@ lands back on the invite after authorising instead of on a dashboard with no
 guild.
 
 Each member: sign in → link their handle → they appear on the boards after the
-next hourly sync. A first sync of a long history takes a couple of minutes
-inside that run.
+next hourly sync. A first sync mirrors the member's whole history inside that
+run — a few seconds even for several thousand submissions, because each page is
+written in a handful of statements rather than one per row. A run interrupted
+part-way through the history re-reads it from the top next time, which is now
+cheap; nothing is lost or double-counted either way.
 
 ### 8. Menu bar app, if you want it (macOS, optional)
 

@@ -3,7 +3,17 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export default function Onboarding() {
+export default function Onboarding({
+  /*
+    False where syncing runs on a schedule instead of on demand. The link
+    succeeds either way; what differs is whether anything appears immediately.
+    Someone who links a handle and lands on an empty dashboard with no
+    explanation assumes it's broken and doesn't come back.
+  */
+  syncsOnLink = true,
+}: {
+  syncsOnLink?: boolean;
+}) {
   const router = useRouter();
   const [handle, setHandle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -70,9 +80,19 @@ export default function Onboarding() {
           </p>
         )}
       </div>
-      <p className="mt-4 text-center text-xs text-muted">
-        The first sync pulls your whole history — a few minutes for large
-        profiles (the CF API allows ~1 request per 2s).
+      <p className="mt-4 text-center text-xs leading-relaxed text-muted">
+        {syncsOnLink ? (
+          <>
+            The first sync pulls your whole history — a few minutes for large
+            profiles (the CF API allows ~1 request per 2s).
+          </>
+        ) : (
+          <>
+            Your history is mirrored on a schedule, so the dashboard fills in
+            within the hour rather than straight away. Nothing else to do —
+            solves made outside the app count too.
+          </>
+        )}
       </p>
     </div>
   );

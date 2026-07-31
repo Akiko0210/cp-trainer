@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { one, q } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
+import { fetchHandleInfo, HandleNotFound } from "@/lib/cf";
+import { one, q } from "@/lib/db";
+import { workerConfigured } from "@/lib/env";
 import { WorkerOfflineError, workerPost } from "@/lib/worker";
 
 /*
@@ -27,9 +29,15 @@ export async function POST(req: Request) {
     rank: string | null;
   };
   try {
-    info = await workerPost(`/validate-handle/${encodeURIComponent(handle)}`);
+    // Prefer the worker where one exists — its queue is what keeps the whole
+    // install inside the Codeforces rate limit. With no worker (a serverless
+    // deployment) this is the one lookup the app makes for itself; see lib/cf.
+    info = workerConfigured()
+      ? await workerPost(`/validate-handle/${encodeURIComponent(handle)}`)
+      : await fetchHandleInfo(handle);
   } catch (e) {
     if (e instanceof WorkerOfflineError) {
+      // Only reachable on an install that HAS a worker, so the advice applies.
       return NextResponse.json(
         { error: "The sync worker isn't running — start it with `pnpm worker` and retry." },
         { status: 502 },
@@ -37,7 +45,7 @@ export async function POST(req: Request) {
     }
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Handle check failed." },
-      { status: 404 },
+      { status: e instanceof HandleNotFound ? 404 : 502 },
     );
   }
 
@@ -59,10 +67,18 @@ export async function POST(req: Request) {
     [info.handle, info.rating, info.maxRating, info.rank, user.id],
   );
 
-  try {
-    await workerPost(`/sync/${user.id}`);
-  } catch {
-    // Sync is retryable from settings; the link itself succeeded.
+  // Kick off the first mirror where there is something to kick. Where there
+  // isn't, the scheduled sync picks the member up on its next pass — so the
+  // answer says which world this is and the UI can set expectations rather
+  // than leaving someone staring at an empty dashboard wondering.
+  let syncing = false;
+  if (workerConfigured()) {
+    try {
+      await workerPost(`/sync/${user.id}`);
+      syncing = true;
+    } catch {
+      // Retryable from Settings; the link itself succeeded.
+    }
   }
-  return NextResponse.json({ id: user.id, handle: info.handle });
+  return NextResponse.json({ id: user.id, handle: info.handle, syncing });
 }

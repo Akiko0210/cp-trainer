@@ -6,6 +6,7 @@ import Onboarding from "@/components/Onboarding";
 import StreakHero from "@/components/StreakHero";
 import SyncBanner from "@/components/SyncBanner";
 import { Card, Empty, Label, StatTile, TrendMark, VerdictBadge } from "@/components/ui";
+import { workerConfigured } from "@/lib/env";
 import { getMyGuild, getStandings } from "@/lib/guild-queries";
 import type { DayActivity } from "@/lib/queries";
 import {
@@ -41,7 +42,7 @@ export default async function Dashboard() {
   // link one (Onboarding), which is now a step inside an account rather than
   // the thing that creates the account.
   if (!user) redirect("/signin");
-  if (!user.cf_handle) return <Onboarding />;
+  if (!user.cf_handle) return <Onboarding syncsOnLink={workerConfigured()} />;
 
   const [sync, categories, overview, review, recent, activity, rec, streak, guild] =
     await Promise.all([

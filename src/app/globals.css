@@ -392,3 +392,14 @@ body {
     opacity: 1 !important;
   }
 }
+
+/* A scrollable strip that shouldn't advertise itself — the mobile nav row
+   scrolls only on narrow phones, and a scrollbar under five pills reads as
+   chrome rather than as an affordance. Touch scrolling is unaffected. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

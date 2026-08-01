@@ -116,15 +116,20 @@ export default function StreakHero({
         </div>
 
         {/* ---- the last two weeks ---- */}
-        <div className="flex items-end gap-[5px]">
+        {/* Fourteen fixed 24px squares need ~400px and a phone card gives ~320,
+            so below sm the squares divide the row instead of setting its width. */}
+        <div className="flex w-full items-end gap-[3px] sm:w-auto sm:gap-[5px]">
           {days.map((d, i) => {
             const isToday = i === days.length - 1;
             const dow = new Date(`${d.day}T12:00:00Z`).getUTCDay();
             return (
-              <div key={d.day} className="flex flex-col items-center gap-1.5">
+              <div
+                key={d.day}
+                className="flex min-w-0 flex-1 flex-col items-center gap-1.5 sm:flex-none"
+              >
                 <span
                   title={`${d.day}: ${d.active ? "practised" : "no practice"}`}
-                  className={`block size-6 rounded-[6px] ${
+                  className={`block aspect-square w-full max-w-6 rounded-[6px] sm:size-6 ${
                     isToday && atRisk ? "streak-pulse" : ""
                   }`}
                   style={{

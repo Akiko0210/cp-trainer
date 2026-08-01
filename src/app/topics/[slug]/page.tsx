@@ -137,7 +137,7 @@ export default async function TopicPage({
         </Card>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <Label>What&apos;s behind this score</Label>
           {contributors.length === 0 ? (

@@ -53,6 +53,16 @@ usually leaves it alone.
 **Kattis** has no API and its `robots.txt` disallows `/users` and `/submissions`.
 Solve state there comes from this app's own timer, never from scraping.
 
+**Layout.** A bare `grid` with no mobile column count leaves an *auto* track,
+and an auto track sizes to **max-content** — one wide table inside it stretches
+every sibling card and the whole page scrolls sideways. Always name the narrow
+count (`grid-cols-1 … lg:grid-cols-2`); Tailwind's numeric `grid-cols-*` expand
+to `minmax(0,1fr)`, which is the clamp that stops it. The nav switches to its
+single row at `lg`, not `sm`: logo, wordmark, five links and the chip cluster
+need ~790px on one line, so switching at 640 put every page into horizontal
+scroll for the entire tablet range. Check a change at 320px as well as 390 —
+the fifth nav link only fits from 360 up.
+
 **Motion.** FLIP measures `offsetTop`, never `getBoundingClientRect().top`, and
 is skipped when `document.visibilityState !== "visible"` — a background tab never
 runs `requestAnimationFrame`, so the inverse transform would never be released.

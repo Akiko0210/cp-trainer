@@ -34,8 +34,19 @@ export default function Nav({
   const pathname = usePathname();
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-page/85 backdrop-blur">
-      <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-2 px-4 sm:gap-4 sm:px-6">
-        <Link href="/" className="flex items-center gap-2.5 rounded-md">
+      {/*
+        Two rows until lg, one above it. The link row is `w-full` so flex-wrap
+        drops it onto its own line below the logo and chips; `lg:w-auto` with
+        `lg:flex-nowrap` pulls it back inline. The `order` swap is what lets the
+        chips sit top-right on the stacked layout while staying to the right of
+        the links on the wide one — one copy of the list in the DOM either way.
+
+        The switch is at lg, not sm: logo + wordmark + five links + the chip
+        cluster need ~790px on one line, so turning it on at 640 put every page
+        into horizontal scroll for the whole tablet range.
+      */}
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-2 px-4 sm:px-6 lg:h-14 lg:flex-nowrap lg:gap-x-4">
+        <Link href="/" className="order-1 flex h-14 items-center gap-2.5 rounded-md lg:h-auto">
           <span
             aria-hidden
             className="num grid size-7 place-items-center rounded-[8px] bg-accent text-[11px] font-bold text-accent-ink"
@@ -47,7 +58,12 @@ export default function Nav({
           </span>
         </Link>
 
-        <nav className="ml-2 flex items-center gap-1 sm:ml-6" aria-label="Main">
+        {/* Full-bleed and scrollable: five pills fit from 360px up, and on the
+            narrowest phones a scrollable row beats a clipped fifth link. */}
+        <nav
+          className="no-scrollbar order-3 -mx-4 flex w-full items-center gap-0.5 overflow-x-auto px-4 pb-2 lg:order-2 lg:mx-0 lg:ml-6 lg:w-auto lg:gap-1 lg:overflow-visible lg:px-0 lg:pb-0"
+          aria-label="Main"
+        >
           {LINKS.map((l) => {
             const active =
               l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
@@ -56,7 +72,7 @@ export default function Nav({
                 key={l.href}
                 href={l.href}
                 aria-current={active ? "page" : undefined}
-                className={`rounded-full px-3 py-1.5 text-sm transition-colors ${
+                className={`flex min-h-10 shrink-0 items-center rounded-full px-2 text-[13px] transition-colors lg:min-h-0 lg:px-3 lg:py-1.5 lg:text-sm ${
                   active
                     ? "bg-accent-soft font-medium text-accent-dk"
                     : "text-muted hover:text-ink"
@@ -68,7 +84,7 @@ export default function Nav({
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2 sm:gap-3">
+        <div className="order-2 ml-auto flex h-14 items-center gap-2 lg:order-3 lg:h-auto lg:gap-3">
           {/* Streak first: it's the one number here that can be lost today. */}
           {streak && <StreakChip initial={streak} />}
           {/* Your standing among your guild, on every page — same visual family

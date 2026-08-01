@@ -285,7 +285,7 @@ function Ladder({
   if (rungs.length === 0) return null;
 
   return (
-    <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
       {rungs.map((r) => {
         const active = activeLevel === r.level;
         const pct = r.data!.problems

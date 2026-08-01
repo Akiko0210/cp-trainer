@@ -238,7 +238,10 @@ export default function SetClient({
                   </span>
                 ) : null}
 
-                <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                {/* Two buttons plus a title do not fit across a phone, and the
+                    title is the part worth reading — so below sm the actions
+                    take their own line instead of truncating it to nothing. */}
+                <span className="flex w-full shrink-0 items-center justify-end gap-1.5 sm:ml-auto sm:w-auto">
                   {isWorking ? (
                     <>
                       <button

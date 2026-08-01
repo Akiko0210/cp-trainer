@@ -1,0 +1,58 @@
+# Just the worker, on a box of its own.
+#
+# The hybrid deployment: Vercel serves the app and Neon holds the data, exactly
+# as they already do, and this supplies the one thing serverless cannot — a
+# process that stays up. That process is what makes a first sync happen the
+# moment someone links a handle instead of on some later pass, and what puts
+# the "Sync now" button back.
+#
+#   cp .env.example .env      # DATABASE_URL, WORKER_TOKEN, WORKER_DOMAIN
+#   docker compose up -d --build
+#
+# The full-stack alternative is ../../docker-compose.yml, which also runs web,
+# Postgres and Caddy and needs no Vercel or Neon at all.
+
+name: cp-trainer-worker
+
+services:
+  worker:
+    build:
+      # The Dockerfile copies worker/*.py, so it needs the repo root.
+      context: ../..
+      dockerfile: worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      # Neon's *direct* string, not the pooled one. This is a long-lived
+      # process opening its own connections; it gains nothing from a pooler
+      # and a pooler is one more thing between it and the data.
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+      # Must be byte-identical to WORKER_TOKEN in the Vercel project.
+      WORKER_TOKEN: ${WORKER_TOKEN:?set WORKER_TOKEN in .env}
+      SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-30}
+    # No ports. The worker is reachable only through Caddy, so there is no
+    # plaintext 8787 listening on a public IP for anyone who scans for it.
+    #
+    # Exactly one replica, always. The Codeforces rate limiter in cf_api.py and
+    # the per-user locks in app.py live in process memory, so a second copy
+    # means a second rate limiter and more traffic than CF allows from one
+    # address. Never scale this service.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [worker]
+    ports:
+      - "80:80" # keep it open: Let's Encrypt renews over HTTP-01
+      - "443:443"
+    environment:
+      WORKER_DOMAIN: ${WORKER_DOMAIN:?set WORKER_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Named, so a rebuild doesn't re-request certificates and walk into
+      # Let's Encrypt's rate limit.
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

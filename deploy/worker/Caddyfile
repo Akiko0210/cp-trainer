@@ -1,0 +1,14 @@
+# TLS for the worker, so the shared token never crosses the internet in clear.
+#
+# Vercel's functions call this host over HTTPS, which means a real certificate:
+# a self-signed one is rejected by fetch() and there is no flag for it in a
+# serverless runtime. Caddy fetches and renews from Let's Encrypt on its own.
+
+{$WORKER_DOMAIN} {
+	encode zstd gzip
+
+	# Nothing here streams — the worker's endpoints are short JSON replies, and
+	# the SSE stream lives in the Next app, not in this process. So no
+	# flush_interval or long read_timeout, unlike the full-stack Caddyfile.
+	reverse_proxy worker:8787
+}

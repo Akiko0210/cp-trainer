@@ -1,0 +1,32 @@
+# TEMPORARY — delete once the sync schedule is confirmed working.
+#
+# Does *any* cron fire in this repository? The sync workflow's schedule has
+# never produced a run, while workflow_dispatch always works, and every static
+# check on it is green. This isolates the one variable: a workflow with no
+# secrets, no dependencies, no checkout — nothing that can fail for an
+# unrelated reason — on the shortest interval GitHub allows.
+#
+#   fires  -> cron works here; the fault is specific to sync-codeforces.yml
+#   silent -> scheduled events are broken for this repo/account, and the
+#             evidence for a support ticket is 12 missed slots an hour
+#
+# 5 minutes is GitHub's documented floor; anything shorter is silently
+# coarsened. Each run bills a rounded-up minute, so this costs ~12/hour of the
+# 2,000 free — fine for an afternoon, not something to leave running.
+
+name: Cron probe
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Say when this fired and what triggered it
+        run: |
+          echo "fired at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          echo "event: ${{ github.event_name }}"

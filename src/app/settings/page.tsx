@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import LocalTime from "@/components/LocalTime";
 import { Card, Label } from "@/components/ui";
 import { one } from "@/lib/db";
 import { workerConfigured } from "@/lib/env";
@@ -61,7 +62,7 @@ export default async function SettingsPage() {
           </dd>
           <dt className="text-muted">Last run</dt>
           <dd className="num text-right">
-            {sync?.last_run_at ? new Date(sync.last_run_at).toLocaleString() : "—"}
+            {sync?.last_run_at ? <LocalTime iso={sync.last_run_at} /> : "—"}
           </dd>
           <dt className="text-muted">Mirrored submissions</dt>
           <dd className="num text-right">

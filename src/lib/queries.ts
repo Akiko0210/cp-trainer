@@ -224,6 +224,7 @@ export type ReviewItem = MapTopic & {
   division: string;
   reason: "weak" | "stale" | "weak+stale";
   mistakes_30d: number;
+  days_since_practiced: number | null;
 };
 
 // The "train continuously" mechanic: weak topics (low score, enough evidence)
@@ -241,6 +242,12 @@ export async function getNeedsReview(userId: number, limit = 6): Promise<ReviewI
      select t.id, t.slug, t.name, t.division, ch.name as chapter,
             m.score, m.rating_estimate, m.confidence, m.trend, m.stale,
             m.solved_count, m.last_practiced_at,
+            -- Elapsed days, not a calendar date. This ends up in prose the
+            -- server renders, where a formatted date would be stamped in the
+            -- server's zone and read a full day off for anyone west of it.
+            -- How long ago is the same number everywhere.
+            floor(extract(epoch from now() - m.last_practiced_at) / 86400)::int
+              as days_since_practiced,
             coalesce(mt.n, 0) as mistakes_30d,
             case when m.score < 40 and m.stale then 'weak+stale'
                  when m.score < 40 then 'weak' else 'stale' end as reason
@@ -451,6 +458,13 @@ export type Recommendation = CatalogProblem & {
   why: string;
 };
 
+function daysAgo(days: number | null): string {
+  if (days === null) return "a while ago";
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  return `${days} days ago`;
+}
+
 // The topic grind recommender (§ milestone 5): unsolved problems in the topic,
 // rating in a just-above-mastery band, curated (usaco.guide) first, closest to
 // target. When no topic is given, the topic itself is chosen by need: weak or
@@ -469,7 +483,7 @@ export async function recommend(
       slug = review[0].slug;
       why =
         review[0].reason === "stale"
-          ? `${review[0].name} is going stale — last practiced ${review[0].last_practiced_at ? new Date(review[0].last_practiced_at).toLocaleDateString() : "a while ago"}.`
+          ? `${review[0].name} is going stale — last practiced ${daysAgo(review[0].days_since_practiced)}.`
           : `${review[0].name} is one of your weakest topics right now.`;
     } else {
       const top = await one<{ slug: string; name: string }>(

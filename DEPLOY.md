@@ -37,7 +37,7 @@ first looks:
   because the client refetches on every reconnect, nothing that happened during
   the gap is missed. Between reconnects it is as instant as A. Polling at 20s
   is only the floor, for a host or proxy where the stream never works at all.
-- **Syncing moves to a schedule.** `.github/workflows/sync.yml` runs the same
+- **Syncing moves to a schedule.** `.github/workflows/sync-codeforces.yml` runs the same
   pass the worker's loop runs, every half hour. A run is ~20s for a couple of
   members and billed as a rounded-up minute, so half-hourly is ~1,440 of a
   private repo's 2,000 free Actions minutes a month. The per-member cost is
@@ -373,10 +373,22 @@ A worse failure, hit on this very install: a repository can stop delivering
 while the manual **Run workflow** button works, so everything looks configured.
 The tell is on any recent commit: `gh api repos/<repo>/commits/<sha>/check-suites`
 lists a check suite from every connected app *except* "GitHub Actions". The fix
-is the settings toggle (Settings → Actions → General → Disable, save, re-enable)
-— and then **push an edit to the workflow file**, because the cron is only
-registered when that file is pushed while delivery is healthy. A push that
-doesn't touch the file revives CI but leaves the schedule nonexistent.
+is the settings toggle (Settings → Actions → General → Disable, save, re-enable).
+
+That revives pushes and PRs, but **not the cron**, and this is the part that
+cost a day: a workflow's schedule is registered on its *workflow record*, not
+re-read from the file on every push. Check it with
+
+```sh
+gh api repos/<repo>/actions/workflows --jq '.workflows[] | {name, updated_at}'
+```
+
+If `updated_at` still equals the record's `created_at` after you have pushed an
+edit to that file, GitHub never re-indexed it — the schedule does not exist, no
+matter how correct the YAML is, and CI passing on the very same commit proves
+nothing. Editing the file's contents does not refresh the record. **Renaming the
+file does**, because a workflow record is keyed by path, so a new path forces a
+new record with a freshly parsed cron.
 
 ### 7. Take the install, then open it up
 

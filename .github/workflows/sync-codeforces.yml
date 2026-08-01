@@ -19,12 +19,14 @@
 #   * in a repo with no pushes for 60 days, schedules are disabled entirely
 #     (GitHub emails first) — a club tool that nobody commits to for a term
 #     will quietly stop syncing until you re-enable it
-#   * the cron is registered when THIS FILE is pushed to the default branch.
-#     If Actions wasn't receiving events at that moment (this repo shipped
-#     with delivery dead — see DEPLOY.md), the schedule silently never
-#     exists: manual runs work, Settings says "up to date", nothing fires.
-#     Fix: toggle Actions off/on in repo settings, then push an edit to
-#     this file.
+#   * the cron lives on the *workflow record*, which is keyed by this file's
+#     path and is NOT re-read when the file's contents change. This repo
+#     shipped with Actions event delivery dead, so the record was created
+#     without a schedule and stayed that way — manual runs worked, CI passed
+#     on the very commit that edited the cron, and nothing ever fired. If
+#     `gh api repos/<repo>/actions/workflows` shows updated_at still equal to
+#     created_at after you edited this file, that is the state you are in.
+#     Renaming the file is what forces a new record. See DEPLOY.md.
 
 name: Sync Codeforces
 

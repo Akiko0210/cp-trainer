@@ -14,11 +14,17 @@
 # 30 is a ~3-minute run, ~4,300/month — at that size drop this back to hourly
 # ("17 * * * *") or the schedule stops working part-way through the month.
 #
-# Two things GitHub does that will bite you if you don't know them:
+# Three things GitHub does that will bite you if you don't know them:
 #   * scheduled runs are best-effort and can be delayed under load
 #   * in a repo with no pushes for 60 days, schedules are disabled entirely
 #     (GitHub emails first) — a club tool that nobody commits to for a term
 #     will quietly stop syncing until you re-enable it
+#   * the cron is registered when THIS FILE is pushed to the default branch.
+#     If Actions wasn't receiving events at that moment (this repo shipped
+#     with delivery dead — see DEPLOY.md), the schedule silently never
+#     exists: manual runs work, Settings says "up to date", nothing fires.
+#     Fix: toggle Actions off/on in repo settings, then push an edit to
+#     this file.
 
 name: Sync Codeforces
 

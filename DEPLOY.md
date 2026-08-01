@@ -368,6 +368,16 @@ Note: GitHub disables scheduled workflows in a repository with no pushes for 60
 days. It emails first, and one commit re-enables them — but over a summer break
 that is exactly how a club tool quietly stops updating.
 
+A worse failure, hit on this very install: a repository can stop delivering
+*events* to Actions entirely — pushes, PRs and the cron all produce nothing,
+while the manual **Run workflow** button works, so everything looks configured.
+The tell is on any recent commit: `gh api repos/<repo>/commits/<sha>/check-suites`
+lists a check suite from every connected app *except* "GitHub Actions". The fix
+is the settings toggle (Settings → Actions → General → Disable, save, re-enable)
+— and then **push an edit to the workflow file**, because the cron is only
+registered when that file is pushed while delivery is healthy. A push that
+doesn't touch the file revives CI but leaves the schedule nonexistent.
+
 ### 7. Take the install, then open it up
 
 Visit the URL, **Sign in with GitHub**, and link your Codeforces handle. The

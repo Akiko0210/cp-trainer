@@ -24,7 +24,9 @@ What it is guarding, in order of how expensive each was to learn:
     one.
   * **Repeated problems in one page.** `on conflict do update` refuses to touch
     the same row twice in one statement, and a page of submissions names the
-    same problem over and over.
+    same problem over and over. The same rule applies to a repeated submission
+    id, where it also decides *which* copy survives — the last, as the per-row
+    upserts did, so a TESTING followed by an OK does not store TESTING.
 """
 
 import asyncio
@@ -60,18 +62,25 @@ def check_true(label: str, cond: bool) -> None:
 
 # --- a fake Codeforces account ----------------------------------------------
 
+# The fixture scopes its catalog assertions to one contest id, so that id must
+# be one Codeforces cannot issue. It used to be 1700 — a real contest, whose
+# six problems and eighteen cf_tag links are in any seeded catalog. The suite
+# passed against a bare schema and failed five checks against a database that
+# had been seeded, which is the one an operator is most likely to point it at.
+CONTEST_ID = 999_000_001
+
 # Two problems, so a page names the same problem more than once — that is the
 # case that breaks a naive multi-row `on conflict do update`.
 PROBLEMS = {
     "A": {
-        "contestId": 1700,
+        "contestId": CONTEST_ID,
         "index": "A",
         "name": "Alpha",
         "rating": 800,
         "tags": ["greedy", "math"],
     },
     "B": {
-        "contestId": 1700,
+        "contestId": CONTEST_ID,
         "index": "B",
         "name": "Beta",
         "rating": 1200,
@@ -205,9 +214,10 @@ def teardown(conn, user_id: int) -> None:
         cur.execute("delete from users where id = %s", (user_id,))
         cur.execute(
             "delete from problem_topics where problem_id in"
-            " (select id from problem_catalog where contest_id = 1700)"
+            " (select id from problem_catalog where contest_id = %s)",
+            (CONTEST_ID,),
         )
-        cur.execute("delete from problem_catalog where contest_id = 1700")
+        cur.execute("delete from problem_catalog where contest_id = %s", (CONTEST_ID,))
     conn.commit()
 
 
@@ -223,12 +233,16 @@ def counts(conn, user_id: int) -> dict:
             (user_id,),
         )
         row = cur.fetchone() or {}
-        cur.execute("select count(*) as n from problem_catalog where contest_id = 1700")
+        cur.execute(
+            "select count(*) as n from problem_catalog where contest_id = %s",
+            (CONTEST_ID,),
+        )
         probs = cur.fetchone()["n"]
         cur.execute(
             "select count(*) as n from problem_topics pt"
             " join problem_catalog p on p.id = pt.problem_id"
-            " where p.contest_id = 1700 and pt.origin = 'cf_tag'"
+            " where p.contest_id = %s and pt.origin = 'cf_tag'",
+            (CONTEST_ID,),
         )
         links = cur.fetchone()["n"]
     return {
@@ -313,6 +327,31 @@ async def test_verdict_upsert(conn, user_id: int) -> None:
         verdict = cur.fetchone()["verdict"]
     check("verdict corrected", verdict, "OK")
     check("no duplicate row", counts(conn, user_id)["submissions"], 5)
+
+
+def test_duplicate_id_in_page(conn, user_id: int) -> None:
+    """One page naming the same id twice keeps the *last* one.
+
+    `on conflict do update` refuses two hits on one target in a single
+    statement, so the page has to be deduped before it is written — and which
+    copy survives is not arbitrary. The per-row upserts this batching replaced
+    executed in order, so the last write won; keeping the first instead would
+    pin a stale TESTING over the OK that followed it.
+    """
+    print("\nsame id twice in one page")
+    topic_ids = seed_cf.tag_topic_ids(conn)
+    page = account(1)
+    dup = dict(page[0], verdict="TESTING")
+    with conn.cursor() as cur:
+        # TESTING first, then OK — the order CF would report them in.
+        sync.write_page(cur, user_id, [dup, dict(page[0], verdict="OK")], topic_ids)
+        cur.execute(
+            "select verdict from submissions"
+            " where user_id = %s and external_submission_id = %s",
+            (user_id, page[0]["id"]),
+        )
+        check("last occurrence wins", cur.fetchone()["verdict"], "OK")
+    conn.rollback()
 
 
 async def test_incremental(conn, user_id: int) -> None:
@@ -441,12 +480,16 @@ async def test_seed_problemset(conn) -> None:
     check("problems ingested", n, 2)
     check_true("statements stay in single digits", proxy.n < 10)
     with conn.cursor() as cur:
-        cur.execute("select count(*) as n from problem_catalog where contest_id = 1700")
+        cur.execute(
+            "select count(*) as n from problem_catalog where contest_id = %s",
+            (CONTEST_ID,),
+        )
         check("catalog rows", cur.fetchone()["n"], 2)
         cur.execute(
             "select count(*) as n from problem_topics pt"
             " join problem_catalog p on p.id = pt.problem_id"
-            " where p.contest_id = 1700 and pt.origin = 'cf_tag'"
+            " where p.contest_id = %s and pt.origin = 'cf_tag'",
+            (CONTEST_ID,),
         )
         check("cf_tag links", cur.fetchone()["n"], 3)
 
@@ -517,6 +560,7 @@ async def main() -> int:
             before = await test_first_sync(conn, user_id)
             await test_idempotent(conn, user_id, before)
             await test_verdict_upsert(conn, user_id)
+            test_duplicate_id_in_page(conn, user_id)
             await test_incremental(conn, user_id)
             await test_killed_walk_keeps_cursor(conn, user_id)
             await test_cursor_survives_refit_failure(conn, user_id)

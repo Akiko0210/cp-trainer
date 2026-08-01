@@ -130,8 +130,13 @@ def write_page(cur, user_id: int, subs: list[dict], topic_ids: dict) -> None:
     problem_ids = upsert_problems(cur, [s.get("problem", {}) for s in subs])
 
     links: set[tuple[int, int]] = set()
-    rows: list[tuple] = []
-    seen: set[int] = set()
+    # Keyed by submission id for the same one-conflict-target-per-statement
+    # rule as above — but keyed rather than skipped, so the *last* occurrence
+    # wins. That is what the per-row upserts this replaced did, and it is the
+    # direction that matters: a page naming one id as TESTING and then OK has
+    # to store OK. Dropping the later row would pin the stale verdict until
+    # some future run happened to touch it again.
+    rows: dict[int, tuple] = {}
     for s in subs:
         prob = s.get("problem", {})
         problem_id = problem_ids.get(external_id(prob))
@@ -140,27 +145,21 @@ def write_page(cur, user_id: int, subs: list[dict], topic_ids: dict) -> None:
                 tid = topic_ids.get(tag)
                 if tid:
                     links.add((problem_id, tid))
-        sid = s["id"]
-        if sid in seen:
-            continue  # same one-conflict-target-per-statement rule as above
-        seen.add(sid)
-        rows.append(
-            (
-                user_id,
-                problem_id,
-                s.get("verdict"),
-                s.get("programmingLanguage"),
-                s["creationTimeSeconds"],
-                s.get("timeConsumedMillis"),
-                s.get("memoryConsumedBytes"),
-                (s.get("author") or {}).get("participantType"),
-                sid,
-            )
+        rows[s["id"]] = (
+            user_id,
+            problem_id,
+            s.get("verdict"),
+            s.get("programmingLanguage"),
+            s["creationTimeSeconds"],
+            s.get("timeConsumedMillis"),
+            s.get("memoryConsumedBytes"),
+            (s.get("author") or {}).get("participantType"),
+            s["id"],
         )
 
     link_cf_tags_batch(cur, links)
 
-    for chunk in _chunked(rows, 9):
+    for chunk in _chunked(list(rows.values()), 9):
         values = ",".join(
             ["(%s,%s,%s,%s,to_timestamp(%s),%s,%s,%s,'cf_api',%s)"] * len(chunk)
         )

@@ -1,39 +1,28 @@
-# The Codeforces mirror, on a schedule instead of in a daemon.
+# The Codeforces mirror, run by hand.
 #
-# On a box, worker/app.py loops forever and syncs every member every 30
-# minutes. A free serverless host has no process that stays up, so this runs
-# the same pass on GitHub's machines and exits, on the same half-hour cadence.
+# **This used to carry a cron and no longer does — the schedule never worked.**
+# Across ~30 hours this repository produced zero `schedule` runs while
+# workflow_dispatch succeeded every time. Everything that can be checked was
+# checked: valid cron on the default branch, workflow `active`, Actions
+# `enabled`, no YAML traps, a freshly-indexed workflow record (forced by
+# renaming the file), the repo-settings off/on toggle, and finally making the
+# repository public. None of it produced a single scheduled run. It matches an
+# open, unanswered GitHub community report. DEPLOY.md records the diagnosis.
+#
+# Syncing on this install is the worker's own loop (worker/app.py, every
+# SYNC_INTERVAL_MINUTES). This file stays because dispatch is the one path that
+# never failed: it is the button for "the worker is down and I need my solves
+# counted now". Deleting it would leave no fallback at all.
+#
 # Measured: ~20s for 2 members — the per-member cost is two CF calls spaced
 # ≥2.2s by the rate limiter in worker/cf_api.py, so roughly 5s each on top of
-# ~15s of checkout and uv setup.
-#
-# Budget, because it is easy to overrun without noticing: a private repo on
-# GitHub Free gets 2,000 Actions minutes a month, billed per run rounded up to
-# the minute. Half-hourly at 1 billed minute ≈ 1,440/month — fits. The rounding
-# is the whole game: a club of ~10 stays inside one minute a run, but a club of
-# 30 is a ~3-minute run, ~4,300/month — at that size drop this back to hourly
-# ("17 * * * *") or the schedule stops working part-way through the month.
-#
-# Three things GitHub does that will bite you if you don't know them:
-#   * scheduled runs are best-effort and can be delayed under load
-#   * in a repo with no pushes for 60 days, schedules are disabled entirely
-#     (GitHub emails first) — a club tool that nobody commits to for a term
-#     will quietly stop syncing until you re-enable it
-#   * the cron lives on the *workflow record*, which is keyed by this file's
-#     path and is NOT re-read when the file's contents change. This repo
-#     shipped with Actions event delivery dead, so the record was created
-#     without a schedule and stayed that way — manual runs worked, CI passed
-#     on the very commit that edited the cron, and nothing ever fired. If
-#     `gh api repos/<repo>/actions/workflows` shows updated_at still equal to
-#     created_at after you edited this file, that is the state you are in.
-#     Renaming the file is what forces a new record. See DEPLOY.md.
+# ~15s of checkout and uv setup. Do not add a `schedule:` back while the worker
+# owns the loop; two of them would hold separate rate limiters.
 
 name: Sync Codeforces
 
 on:
-  schedule:
-    - cron: "10,40 * * * *" # every half hour, off the hour: everyone crons at :00
-  workflow_dispatch: # and a button, for "sync now, I just solved something"
+  workflow_dispatch: # the only trigger — see the note above
 
 concurrency:
   # Never let two passes overlap: both would hold their own rate-limit lock and

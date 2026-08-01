@@ -47,11 +47,12 @@ few minutes; the dashboard shows progress).
 
 To put this in front of a club, see **[DEPLOY.md](DEPLOY.md)**. Two free
 options: a small always-on box running [docker-compose.yml](docker-compose.yml),
-or Vercel + Neon with the sync on a GitHub Actions schedule. The second keeps
-push updates (the stream is cut at the platform's duration limit and the client
-refetches on reconnect) and matches the worker's half-hour sync cadence — what
-it actually trades away is the "Sync now" button, because there is no worker
-process to poke; you wait for the next scheduled pass instead.
+or Vercel + Neon with the sync on GitHub Actions. The second keeps push updates
+(the stream is cut at the platform's duration limit and the client refetches on
+reconnect), but it has no worker process — so no "Sync now" button, no immediate
+first sync when someone links a handle, and syncing depends on a GitHub Actions
+schedule that **never fired at all** on the install this was written from.
+DEPLOY.md has the diagnosis; the box is the recommendation.
 
 ## How the numbers work
 

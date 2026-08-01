@@ -37,13 +37,13 @@ first looks:
   because the client refetches on every reconnect, nothing that happened during
   the gap is missed. Between reconnects it is as instant as A. Polling at 20s
   is only the floor, for a host or proxy where the stream never works at all.
-- **Syncing moves to a schedule.** `.github/workflows/sync-codeforces.yml` runs the same
-  pass the worker's loop runs, every half hour. A run is ~20s for a couple of
-  members and billed as a rounded-up minute, so half-hourly is ~1,440 of a
-  private repo's 2,000 free Actions minutes a month. The per-member cost is
-  two rate-limited CF calls (~5s), so a 30-person club is a ~3-minute run —
-  at that size half-hourly (~4,300) no longer fits and the cron should drop
-  back to hourly.
+- **Syncing has to move off the worker's loop, and this is Option B's weak
+  point.** The intent was `.github/workflows/sync-codeforces.yml` on a cron,
+  running the same pass the loop runs. On this install **that schedule never
+  fired once** — see *When the schedule never runs* below before you depend on
+  it. The workflow is still there as a manual dispatch, which has never failed;
+  a run is ~20s for a couple of members, and the per-member cost is two
+  rate-limited CF calls (~5s).
 - Neon's free database sleeps when idle, so the first visitor after a quiet
   spell waits a few seconds.
 
@@ -346,7 +346,7 @@ Read the real error at **Vercel → your project → Logs**, or with the Vercel 
 Then add them (below) and **redeploy** — environment variables only apply to
 deployments created after they were set.
 
-### 6. Turn on the scheduled sync
+### 6. Set up syncing
 
 In the repository: **Settings → Secrets and variables → Actions → New repository
 secret**
@@ -354,41 +354,63 @@ secret**
 - Name: `DATABASE_URL`
 - Value: the Neon **direct** string
 
-Then **Actions → Sync Codeforces → Run workflow** and watch it finish before you
-trust the schedule. It should report `N ok, 0 failed`.
+Then **Actions → Sync Codeforces → Run workflow**. It should report
+`N ok, 0 failed`.
 
-There is no *Sync now* button on this deployment — no worker process to poke —
-so Settings says "syncing runs every half hour" instead of offering a control
-that could only fail. Run this workflow by hand when someone needs their solves
-counted immediately. If Settings shows the sync as **stale** (no completed run
-for over two hours), the schedule itself has stopped — start with the banner at
-the top of the Actions tab.
+That is a manual button, and on this install it is the *only* trigger, because
+the cron never worked. There is no *Sync now* button in the app either — no
+worker process to poke — so Settings says solves appear on a schedule and shows
+the sync as **stale** once no run has completed for two hours.
 
-Note: GitHub disables scheduled workflows in a repository with no pushes for 60
-days. It emails first, and one commit re-enables them — but over a summer break
-that is exactly how a club tool quietly stops updating.
+**Before choosing Option B, read the next section.** Unattended syncing is the
+whole point of Option B, and it is the part that failed.
 
-A worse failure, hit on this very install: a repository can stop delivering
-*events* to Actions entirely — pushes, PRs and the cron all produce nothing,
-while the manual **Run workflow** button works, so everything looks configured.
-The tell is on any recent commit: `gh api repos/<repo>/commits/<sha>/check-suites`
-lists a check suite from every connected app *except* "GitHub Actions". The fix
-is the settings toggle (Settings → Actions → General → Disable, save, re-enable).
+### When the schedule never runs
 
-That revives pushes and PRs, but **not the cron**, and this is the part that
-cost a day: a workflow's schedule is registered on its *workflow record*, not
-re-read from the file on every push. Check it with
+On this install, `schedule` produced **zero** runs across ~30 hours while
+`workflow_dispatch` succeeded every time. Everything below was tried; none of it
+produced a single scheduled run.
 
-```sh
-gh api repos/<repo>/actions/workflows --jq '.workflows[] | {name, updated_at}'
-```
+Work through it in this order — the first two are ordinary and do get hit:
 
-If `updated_at` still equals the record's `created_at` after you have pushed an
-edit to that file, GitHub never re-indexed it — the schedule does not exist, no
-matter how correct the YAML is, and CI passing on the very same commit proves
-nothing. Editing the file's contents does not refresh the record. **Renaming the
-file does**, because a workflow record is keyed by path, so a new path forces a
-new record with a freshly parsed cron.
+1. **Is the repo delivering events at all?** Push a commit and check:
+
+   ```sh
+   gh api repos/<repo>/commits/<sha>/check-suites --jq '.check_suites[].app.name'
+   ```
+
+   If every connected app appears *except* "GitHub Actions", event delivery is
+   dead — no push, PR or cron will ever fire, while **Run workflow** keeps
+   working, so nothing looks broken. Fix: **Settings → Actions → General →
+   Disable Actions**, save, re-enable. This is real and it did fix pushes here.
+
+2. **Is the cron actually registered?** A schedule lives on the *workflow
+   record*, keyed by file path, and is **not** re-read when the file's contents
+   change:
+
+   ```sh
+   gh api repos/<repo>/actions/workflows --jq '.workflows[] | {name, updated_at}'
+   ```
+
+   If `updated_at` still equals `created_at` after you pushed an edit to that
+   file, it was never re-indexed — the schedule does not exist no matter how
+   correct the YAML is, and CI passing on the same commit proves nothing.
+   **Renaming the file** forces a fresh record; editing it does not.
+
+3. **Prove it with a probe rather than waiting.** A workflow with no secrets,
+   no checkout and no dependencies on `*/5 * * * *` (GitHub's floor) turns a
+   30-minute guess into a 5-minute answer. If the probe never fires, the fault
+   is not your workflow.
+
+4. Also ordinary: schedules are best-effort and delayed under load, and GitHub
+   disables them in a repo with no pushes for 60 days (it emails first) — over
+   a summer break that is exactly how a club tool quietly stops updating.
+
+If all of that is clean and it still never fires, stop: it is not your config.
+Both the repo-settings toggle *and* making the repository public were tried here
+with no effect, matching an open, unanswered GitHub community report. Move the
+sync to a worker that owns its own loop — **Option A** — rather than spending
+another day on it.
 
 ### 7. Take the install, then open it up
 
@@ -440,11 +462,12 @@ short restore history, so check what your plan retains before you need it.
 | --- | --- | --- |
 | Neon storage | 0.5 GB | writes start failing; your database is ~31 MB with 6 members, so it is roughly 5–10 MB per active member |
 | Neon direct connections | one per open live stream | the board stops updating for late arrivals; only a concern above ~20 people watching at once |
-| Actions minutes | 2,000/mo on a private repo | syncs silently stop part-way through the month — half-hourly at 1 min/run is ~1,440; a 30-member club (~3 min/run) must drop to hourly |
+| Actions minutes | 2,000/mo on a private repo, unlimited on a public one | only bites if you get a schedule working at all; billing rounds each run up to a minute |
 | Neon idle suspend | — | first visitor after a quiet spell waits a few seconds |
 
-Making the repo public would give unlimited Actions minutes, at the cost of the
-repo being public.
+Making the repo public gives unlimited Actions minutes, at the cost of the repo
+being public. It does **not** fix a schedule that never fires — that was tried
+here, and changed nothing.
 
 ---
 

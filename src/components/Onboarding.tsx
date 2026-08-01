@@ -89,7 +89,7 @@ export default function Onboarding({
         ) : (
           <>
             Your history is mirrored on a schedule, so the dashboard fills in
-            within the hour rather than straight away. Nothing else to do —
+            within half an hour rather than straight away. Nothing else to do —
             solves made outside the app count too.
           </>
         )}

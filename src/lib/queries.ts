@@ -287,11 +287,19 @@ export type SyncState = {
   message: string | null;
   last_run_at: string | null;
   submissions_total: number;
+  stale: boolean;
 };
 
 export async function getSyncState(userId: number): Promise<SyncState | null> {
+  // `status = 'ok'` is the outcome of the *last* run, not evidence there was
+  // a recent one — the schedule can stop entirely (Actions disabled, minutes
+  // exhausted, 60 idle days) and the row keeps saying 'ok' forever. Both
+  // deployments sync every half hour; two hours is four missed runs, enough
+  // to clear GitHub's best-effort scheduling jitter but still catch a dead
+  // schedule the same day.
   return one<SyncState>(
     `select ss.status, ss.message, ss.last_run_at,
+            (ss.status = 'ok' and ss.last_run_at < now() - interval '2 hours') as stale,
             (select count(*) from submissions where user_id = $1)::int as submissions_total
      from sync_state ss where ss.user_id = $1 and ss.source = 'cf_api'`,
     [userId],

@@ -49,9 +49,9 @@ To put this in front of a club, see **[DEPLOY.md](DEPLOY.md)**. Two free
 options: a small always-on box running [docker-compose.yml](docker-compose.yml),
 or Vercel + Neon with the sync on a GitHub Actions schedule. The second keeps
 push updates (the stream is cut at the platform's duration limit and the client
-refetches on reconnect) — what it actually trades away is sync *frequency*:
-hourly instead of every half hour, and no "Sync now" button, because there is no
-worker process to poke.
+refetches on reconnect) and matches the worker's half-hour sync cadence — what
+it actually trades away is the "Sync now" button, because there is no worker
+process to poke; you wait for the next scheduled pass instead.
 
 ## How the numbers work
 

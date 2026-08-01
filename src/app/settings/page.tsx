@@ -21,6 +21,8 @@ export default async function SettingsPage() {
     ),
   ]);
 
+  const stale = sync?.stale ?? false;
+
   return (
     <div className="mx-auto max-w-xl pt-6">
       <h1 className="font-display mb-5 text-[26px] font-semibold tracking-tight">
@@ -51,7 +53,8 @@ export default async function SettingsPage() {
         <dl className="grid grid-cols-2 gap-y-2 text-sm">
           <dt className="text-muted">Status</dt>
           <dd className="text-right">
-            {sync?.status === "ok" && "up to date"}
+            {sync?.status === "ok" &&
+              (stale ? <span className="text-muted">stale</span> : "up to date")}
             {sync?.status === "running" && "running…"}
             {sync?.status === "error" && <span className="text-wa">failed</span>}
             {!sync?.status && "never ran"}
@@ -70,13 +73,20 @@ export default async function SettingsPage() {
             {sync.message}
           </p>
         )}
+        {stale && (
+          <p className="mt-3 rounded-lg bg-card-2 px-3 py-2 text-xs text-muted">
+            No sync has completed in over two hours — the schedule has likely
+            stopped. New solves will not appear until it runs again; the
+            operator can check the repository&apos;s Actions tab.
+          </p>
+        )}
         <div className="mt-4">
           <SyncNow scheduled={!worker} />
         </div>
         <p className="mt-3 text-xs leading-relaxed text-muted">
           {worker
             ? "The worker also syncs on its own every 30 minutes while running. "
-            : "Syncing runs hourly on a schedule. "}
+            : "Syncing runs every half hour on a schedule. "}
           Solves made outside the app count too — the mirror is your full CF
           history.
         </p>

@@ -34,7 +34,7 @@ export default function SyncNow({
     return (
       <p className="rounded-lg bg-card-2 px-3 py-2.5 text-[13px] leading-relaxed text-muted">
         This deployment refreshes every member&apos;s Codeforces history on a
-        schedule — new solves appear within the hour. There is nothing to
+        schedule — new solves appear within half an hour. There is nothing to
         trigger by hand.
       </p>
     );

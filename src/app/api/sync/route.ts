@@ -22,7 +22,7 @@ export async function POST(req: Request) {
       {
         error:
           "This deployment syncs on a schedule rather than on demand — your " +
-          "Codeforces history refreshes within the hour.",
+          "Codeforces history refreshes within half an hour.",
         scheduled: true,
       },
       { status: 501 },

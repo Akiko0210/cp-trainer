@@ -38,15 +38,18 @@ first looks:
   the gap is missed. Between reconnects it is as instant as A. Polling at 20s
   is only the floor, for a host or proxy where the stream never works at all.
 - **Syncing moves to a schedule.** `.github/workflows/sync.yml` runs the same
-  pass the worker's loop runs, hourly. Measured at ~25s for 6 members, so a
-  30-person club is ~2 minutes a run — about 1,500 of a private repo's 2,000
-  free Actions minutes a month. Half-hourly would not fit; hourly does.
+  pass the worker's loop runs, every half hour. A run is ~20s for a couple of
+  members and billed as a rounded-up minute, so half-hourly is ~1,440 of a
+  private repo's 2,000 free Actions minutes a month. The per-member cost is
+  two rate-limited CF calls (~5s), so a 30-person club is a ~3-minute run —
+  at that size half-hourly (~4,300) no longer fits and the cron should drop
+  back to hourly.
 - Neon's free database sleeps when idle, so the first visitor after a quiet
   spell waits a few seconds.
 
-The real difference from A is not liveness, it is that a member's new solves
-appear within the hour rather than within half an hour, and that you are
-depending on three free tiers instead of one machine.
+The real difference from A is not liveness or sync cadence — both are half
+hour — it is that you are depending on three free tiers instead of one
+machine.
 
 **Two Neon settings that are not optional here:**
 
@@ -343,7 +346,7 @@ Read the real error at **Vercel → your project → Logs**, or with the Vercel 
 Then add them (below) and **redeploy** — environment variables only apply to
 deployments created after they were set.
 
-### 6. Turn on the hourly sync
+### 6. Turn on the scheduled sync
 
 In the repository: **Settings → Secrets and variables → Actions → New repository
 secret**
@@ -355,9 +358,11 @@ Then **Actions → Sync Codeforces → Run workflow** and watch it finish before
 trust the schedule. It should report `N ok, 0 failed`.
 
 There is no *Sync now* button on this deployment — no worker process to poke —
-so Settings says "syncing runs hourly" instead of offering a control that could
-only fail. Run this workflow by hand when someone needs their solves counted
-immediately.
+so Settings says "syncing runs every half hour" instead of offering a control
+that could only fail. Run this workflow by hand when someone needs their solves
+counted immediately. If Settings shows the sync as **stale** (no completed run
+for over two hours), the schedule itself has stopped — start with the banner at
+the top of the Actions tab.
 
 Note: GitHub disables scheduled workflows in a repository with no pushes for 60
 days. It emails first, and one commit re-enables them — but over a summer break
@@ -374,7 +379,7 @@ lands back on the invite after authorising instead of on a dashboard with no
 guild.
 
 Each member: sign in → link their handle → they appear on the boards after the
-next hourly sync. A first sync mirrors the member's whole history inside that
+next half-hourly sync. A first sync mirrors the member's whole history inside that
 run — a few seconds even for several thousand submissions, because each page is
 written in a handful of statements rather than one per row. A run interrupted
 part-way through the history re-reads it from the top next time, which is now
@@ -413,7 +418,7 @@ short restore history, so check what your plan retains before you need it.
 | --- | --- | --- |
 | Neon storage | 0.5 GB | writes start failing; your database is ~31 MB with 6 members, so it is roughly 5–10 MB per active member |
 | Neon direct connections | one per open live stream | the board stops updating for late arrivals; only a concern above ~20 people watching at once |
-| Actions minutes | 2,000/mo on a private repo | syncs silently stop part-way through the month — hourly at ~2 min/run is ~1,500 |
+| Actions minutes | 2,000/mo on a private repo | syncs silently stop part-way through the month — half-hourly at 1 min/run is ~1,440; a 30-member club (~3 min/run) must drop to hourly |
 | Neon idle suspend | — | first visitor after a quiet spell waits a few seconds |
 
 Making the repo public would give unlimited Actions minutes, at the cost of the

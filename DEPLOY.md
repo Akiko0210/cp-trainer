@@ -239,16 +239,23 @@ DATABASE_URL="$CPDB" pnpm seed:icpc
 
 `db:deploy` prints the table count when it finishes.
 
-**Budget an hour and a half for the seeds, and don't kill them.** Against a
-local Postgres they take about ten minutes; against a hosted one they are far
-slower, because each of ~14,000 problems is a separate round trip over the
-network. Measured against Neon us-east-2 from a laptop:
+**Give the seeds room and don't kill them.** They are much slower against a
+hosted Postgres than a local one, because a round trip is ~86 ms there and
+effectively free on a laptop — so anything writing a row at a time pays for
+every row. Measured against Neon us-east-2 from a laptop:
 
 | | local Docker | Neon |
 | --- | --- | --- |
 | `pnpm db:deploy` | instant | instant |
-| `pnpm seed` (topics, then CF problem ratings) | ~3 min | **67 min** |
+| `pnpm seed` — usaco.guide half (topics, curated lists) | ~3 min | **minutes**; still a round trip per row |
+| `pnpm seed` — CF problemset half (~14,000 problems) | seconds | seconds — 4 statements, batched |
 | `pnpm seed:icpc` (Kattis, 2s per page) | ~6 min | ~8 min |
+
+The CF half used to be the bulk of this: ~49,000 round trips, about 67 minutes.
+`seed_cf.py` now sends the whole problemset in a handful of statements.
+`seed_usaco.py` has not had the same treatment — its inserts are nested (chapter
+id feeds module id feeds problem), so it is a real restructuring rather than a
+batch call, and it is still the slow part of `pnpm seed`.
 
 They are idempotent, so an interrupted run can simply be run again.
 
@@ -367,8 +374,11 @@ lands back on the invite after authorising instead of on a dashboard with no
 guild.
 
 Each member: sign in → link their handle → they appear on the boards after the
-next hourly sync. A first sync of a long history takes a couple of minutes
-inside that run.
+next hourly sync. A first sync mirrors the member's whole history inside that
+run — a few seconds even for several thousand submissions, because each page is
+written in a handful of statements rather than one per row. A run interrupted
+part-way through the history re-reads it from the top next time, which is now
+cheap; nothing is lost or double-counted either way.
 
 ### 8. Menu bar app, if you want it (macOS, optional)
 

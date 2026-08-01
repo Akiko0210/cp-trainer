@@ -34,6 +34,21 @@ taking a week off.
   don't revert it, or ids stop comparing equal to the same ids arriving as JSON.
 - Every `$N` must appear in the query text. An unused placeholder is a hard
   error ("could not determine data type"), not an ignored argument.
+- **Row at a time is the expensive mistake here.** A round trip to a hosted
+  Postgres is ~86 ms and 500 rows in one call cost the same as one row, so a
+  loop that writes per row is free against local Docker and ruinous against
+  Neon. The first sync spent 1,214 s that way. Batch the write; `worker/sync.py`
+  does one statement per phase per page. Postgres binds at most 65,535
+  parameters per statement, so batches have to chunk.
+
+**A submission cursor may only advance once the walk is complete.** Codeforces
+returns submissions newest-first, so after page one the highest id seen is
+already the newest in the account. Persisting it mid-walk makes the next run
+stop immediately and never fetch the *older* pages — the history is silently
+lost, and nothing about it looks like an error. `sync_state
+.last_synced_submission_id` moves only when the walk has met data we already
+hold or run off the end of the account; `quick=true` reads one page and so
+usually leaves it alone.
 
 **Kattis** has no API and its `robots.txt` disallows `/users` and `/submissions`.
 Solve state there comes from this app's own timer, never from scraping.

@@ -23,4 +23,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=4).status==200 else 1)"
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8787"]
+# serve.py, not uvicorn's CLI: the bind must be dual-stack (Railway probes
+# over IPv6, compose and the HEALTHCHECK above over IPv4) and asyncio forces
+# IPV6_V6ONLY on any listener uvicorn opens itself — see worker/serve.py.
+CMD ["python", "serve.py"]

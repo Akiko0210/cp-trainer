@@ -31,7 +31,14 @@ RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
 
 # `output: "standalone"` (next.config.ts) emits a server plus exactly the
 # node_modules it traced — the difference between ~150MB and ~1GB.
-COPY --from=builder /app/public ./public
+#
+# No `COPY /app/public` here, deliberately. This app has no public/ directory:
+# the icons live in src/app (favicon.ico, icon.svg, apple-icon.png), which the
+# App Router serves itself, and nothing else references a static asset. Git
+# cannot track an empty directory, so the line the Next.js template ships with
+# fails on every fresh clone with "path not found" — it only appeared to work
+# on a laptop that still had the empty folder create-next-app left behind.
+# Restore it if you ever add something under public/.
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Schema and migration runner travel with the image so a deploy can bring the

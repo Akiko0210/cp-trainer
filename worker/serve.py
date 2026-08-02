@@ -18,7 +18,11 @@ import socket
 
 import uvicorn
 
-PORT = int(os.environ.get("WORKER_PORT", "8787"))
+# PORT first: that is the variable Railway injects and aims its healthcheck
+# and routing at, so honouring it removes a whole class of "healthy but
+# unreachable" — no dashboard port config needed at all. WORKER_PORT is the
+# name app.py's docs promise for a box of your own; 8787 the compose default.
+PORT = int(os.environ.get("PORT") or os.environ.get("WORKER_PORT") or "8787")
 
 sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

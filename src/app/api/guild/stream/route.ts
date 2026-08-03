@@ -16,6 +16,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /*
+  The FALLBACK stream, for installs with no worker. With WORKER_URL set the
+  stream-token route points browsers at the worker's /stream instead — a
+  process nothing cuts at 60 seconds and one LISTEN total — and this route
+  goes unvisited. It stays for localhost development and worker-less boxes.
+
   Server-Sent Events, not WebSockets: the leaderboard only ever needs
   server→client, SSE survives proxies that mangle upgrades, and the browser
   reconnects on its own. One long-lived response per viewer.

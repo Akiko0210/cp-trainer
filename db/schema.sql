@@ -274,9 +274,11 @@ end $$;
 create index if not exists users_guild on users (guild_id);
 
 -- --- real-time --------------------------------------------------------------
--- Writers NOTIFY; the web app holds one LISTEN connection per Node process and
--- fans out to its SSE streams (src/lib/realtime.ts). The worker therefore
--- publishes to every open leaderboard without knowing the web app exists.
+-- Writers NOTIFY; a single LISTEN connection fans out to every open SSE
+-- stream. With a worker configured that listener lives in the worker
+-- (worker/broadcast.py) and browsers stream from it directly; otherwise the
+-- web app holds one per Node process (src/lib/realtime.ts). Either way a
+-- writer publishes to every open leaderboard without knowing who is watching.
 -- Payloads name the guild so a stream can filter by it. No guild, no traffic.
 
 create or replace function notify_standings_change() returns trigger as $$

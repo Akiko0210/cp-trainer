@@ -64,6 +64,7 @@ export default function GuildLive({
     let poll: ReturnType<typeof setInterval> | null = null;
     let bump: ReturnType<typeof setTimeout> | null = null;
     let fade: ReturnType<typeof setTimeout> | null = null;
+    let retry: ReturnType<typeof setTimeout> | null = null;
     let connects = 0;
     let failures = 0;
     let stopped = false;
@@ -87,8 +88,30 @@ export default function GuildLive({
       }, 20_000);
     };
 
-    const connect = () => {
-      source = new EventSource("/api/guild/stream");
+    /*
+      The stream's address comes from the server, per connection. With a
+      worker configured it is the worker's own origin plus a signed token
+      (see api/guild/stream-token) — a process nothing cuts at 60 seconds;
+      without one it is the same-origin SSE route. Because the URL carries a
+      token that can expire, reconnection is handled here rather than left to
+      EventSource's built-in retry, which would re-dial a dead URL forever.
+    */
+    const connect = async () => {
+      let url: string;
+      try {
+        const res = await fetch("/api/guild/stream-token");
+        if (!res.ok) throw new Error(String(res.status));
+        ({ url } = (await res.json()) as { url: string });
+      } catch {
+        if (stopped) return;
+        failures += 1;
+        if (failures >= 3 && connects === 0) fallBackToPolling();
+        else scheduleReconnect();
+        return;
+      }
+      if (stopped) return;
+
+      source = new EventSource(url);
 
       source.addEventListener("ready", () => {
         setLive(true);
@@ -118,15 +141,30 @@ export default function GuildLive({
 
       source.onerror = () => {
         setLive(false);
-        // A drop after a working connection is ordinary — the browser
-        // reconnects and the `ready` handler above catches up. Three failures
-        // with nothing in between means the stream isn't going to work here.
+        // Close rather than let EventSource retry: its retry would reuse
+        // this URL, and the URL is the part that may have gone stale.
+        source?.close();
+        source = null;
         failures += 1;
+        // Three failures with nothing in between means the stream isn't
+        // going to work here; a drop after a working connection is ordinary.
         if (failures >= 3 && connects === 0) fallBackToPolling();
+        else scheduleReconnect();
       };
     };
 
-    connect();
+    const scheduleReconnect = () => {
+      if (stopped || poll || retry) return;
+      // 2s, 4s, 8s, capped — a worker mid-deploy comes back in seconds, and
+      // anything longer is what the polling floor is for.
+      const delay = Math.min(2_000 * 2 ** Math.max(failures - 1, 0), 15_000);
+      retry = setTimeout(() => {
+        retry = null;
+        void connect();
+      }, delay);
+    };
+
+    void connect();
 
     // Coming back to a tab that slept through the interesting part.
     const onVisible = () => {
@@ -139,6 +177,7 @@ export default function GuildLive({
       if (bump) clearTimeout(bump);
       if (fade) clearTimeout(fade);
       if (poll) clearInterval(poll);
+      if (retry) clearTimeout(retry);
       document.removeEventListener("visibilitychange", onVisible);
       source?.close();
     };

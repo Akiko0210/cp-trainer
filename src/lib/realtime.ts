@@ -1,7 +1,10 @@
 import { Client } from "pg";
 
 /*
-  Real-time fan-out.
+  Real-time fan-out — the FALLBACK copy. When WORKER_URL is set, browsers
+  stream from the worker's own broadcaster (worker/broadcast.py) and none of
+  this runs; this version serves localhost development and worker-less boxes,
+  where "one LISTEN per Node process" is one connection, not one per lambda.
 
   Writers don't know or care who is watching: the schema puts triggers on
   `submissions`, `topic_mastery` and `users` that `pg_notify('standings', …)`.

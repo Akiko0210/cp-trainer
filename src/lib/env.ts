@@ -61,7 +61,13 @@ const REQUIRED_IN_PROD = [
  * that can only fail.
  */
 export function workerConfigured(): boolean {
-  return !!process.env.WORKER_URL?.trim();
+  return !!workerUrl();
+}
+
+/** The worker's base URL, normalised (no trailing slash), or null. */
+export function workerUrl(): string | null {
+  const url = process.env.WORKER_URL?.trim();
+  return url ? url.replace(/\/+$/, "") : null;
 }
 
 /**

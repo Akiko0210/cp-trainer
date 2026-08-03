@@ -31,12 +31,15 @@ backups (one cron line, below).
 Zero machines to run, deploys from GitHub on push, and closer to A than it
 first looks:
 
-- **Updates stay push, with a blink every minute.** A serverless host caps how
-  long a response may stream (60s on Hobby, which the stream route asks for).
-  So the SSE connection is cut on the minute and the browser reconnects — and
-  because the client refetches on every reconnect, nothing that happened during
-  the gap is missed. Between reconnects it is as instant as A. Polling at 20s
-  is only the floor, for a host or proxy where the stream never works at all.
+- **Updates stay push — uncut with a worker, blinking every minute without.**
+  With the hybrid below, browsers stream straight from the worker (the
+  stream-token route hands them a signed URL), so one process holds one LISTEN
+  and no platform cuts the connection. Without a worker the same-origin SSE
+  route serves instead, and a serverless host caps how long a response may
+  stream (60s on Hobby): the connection is cut on the minute and the browser
+  reconnects — the client refetches on every reconnect, so nothing that
+  happened during the gap is missed. Polling at 20s is only the floor, for a
+  host or proxy where no stream works at all.
 - **Syncing has to move off the worker's loop, and this is Option B's weak
   point.** The intent was `.github/workflows/sync-codeforces.yml` on a cron,
   running the same pass the loop runs. On this install **that schedule never
@@ -456,10 +459,19 @@ configuration.
    locks live in process memory; two replicas is two rate limiters from one
    address.
 
+The worker also serves the live leaderboard stream: browsers hit its
+`/stream` directly with a token the app signs (HMAC over the shared
+`WORKER_TOKEN` — mint in `api/guild/stream-token`, verify in
+`worker/broadcast.py`), so streams are never cut at 60 seconds, Vercel burns
+no invocations holding them, and exactly one LISTEN connection exists no
+matter how many tabs are open — torn down half a minute after the last viewer
+leaves, so Neon can still scale to zero.
+
 The box is stateless — all data is in Neon — so if the service dies, recreate
 it from these six steps and nothing is lost. `sync-codeforces.yml` remains as
 a manual dispatch for the day the worker is down, and the Settings card shows
-**stale** once nothing has completed for two hours.
+**stale** once nothing has completed for two hours; if the worker is down the
+stream client falls back to polling on its own.
 
 ### 7. Take the install, then open it up
 

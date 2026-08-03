@@ -27,9 +27,15 @@ inactivity; an area title should be lost to someone improving, not to the holder
 taking a week off.
 
 **Postgres.**
-- `LISTEN` cannot survive a transaction pooler — the real-time client uses
-  `DATABASE_URL_UNPOOLED`. Through a pooler it connects fine and then silently
-  never receives anything.
+- `LISTEN` cannot survive a transaction pooler — every real-time client uses
+  `DATABASE_URL_UNPOOLED` (or a direct `DATABASE_URL`). Through a pooler it
+  connects fine and then silently never receives anything.
+- There are two LISTEN fan-outs and only one runs at a time: the worker's
+  (`worker/broadcast.py`) serves browsers directly whenever `WORKER_URL` is
+  set; the web app's (`src/lib/realtime.ts` + the stream route) is the
+  fallback for worker-less installs. Both tear down their connection ~30s
+  after the last viewer leaves so a scale-to-zero database can sleep — don't
+  "fix" that by keeping either connected.
 - node-postgres returns `bigint` as a *string*. `db.ts` installs an INT8 parser;
   don't revert it, or ids stop comparing equal to the same ids arriving as JSON.
 - Every `$N` must appear in the query text. An unused placeholder is a hard

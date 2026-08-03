@@ -11,12 +11,15 @@ Env:  DATABASE_URL, SYNC_INTERVAL_MINUTES (default 30), WORKER_PORT,
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import secrets
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
+from fastapi.responses import StreamingResponse
 
+import broadcast
 import cf_api
 import db
 import seed_cf
@@ -66,6 +69,7 @@ async def lifespan(_: FastAPI):
     task = asyncio.create_task(_scheduler())
     yield
     task.cancel()
+    broadcast.broadcaster.shutdown()
 
 
 app = FastAPI(title="cp-trainer-worker", lifespan=lifespan)
@@ -94,6 +98,54 @@ def health() -> dict:
     """Unauthenticated on purpose: platform health checks can't hold a secret,
     and this reveals nothing."""
     return {"ok": True}
+
+
+@app.get("/stream")
+async def stream(token: str = ""):
+    """The live leaderboard, streamed from the process that never gets cut.
+
+    Browsers connect here directly (EventSource, cross-origin), not through
+    the Next app — a serverless host caps a response's duration, which is why
+    the old stream blinked every 60 seconds. Auth is a token the Next app
+    mints for its signed-in members (HMAC over WORKER_TOKEN, carrying the
+    guild id and an expiry) because the session cookie doesn't cross origins.
+    Events are filtered to the token's guild before they leave this process.
+    """
+    try:
+        claims = broadcast.verify_stream_token(token, WORKER_TOKEN)
+    except broadcast.TokenError as e:
+        raise HTTPException(401, str(e))
+    guild_id = int(claims["g"])
+
+    async def gen():
+        q = await broadcast.broadcaster.register(guild_id)
+        try:
+            yield f"event: ready\ndata: {json.dumps({'guild_id': guild_id})}\n\n"
+            while True:
+                try:
+                    ev = await asyncio.wait_for(q.get(), timeout=25)
+                    yield f"event: standings\ndata: {json.dumps(ev)}\n\n"
+                except TimeoutError:
+                    # Comment-only heartbeat: keeps intermediaries from
+                    # reaping an idle connection, and is also how a vanished
+                    # client is finally noticed (the write fails).
+                    yield ": ping\n\n"
+        finally:
+            broadcast.broadcaster.unregister(q, guild_id)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            # Wide open on purpose: the gate is the token, not the origin —
+            # tokens are minted only for signed-in members, scoped to a guild
+            # and expiring. Pinning an origin here would break the moment the
+            # app moved and protect nothing the token doesn't.
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
 
 
 @app.post("/sync/{user_id}", dependencies=[Depends(require_token)])

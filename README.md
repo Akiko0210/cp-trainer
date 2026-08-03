@@ -52,10 +52,10 @@ To put this in front of a club, see **[DEPLOY.md](DEPLOY.md)**. Either one
 always-on box running [docker-compose.yml](docker-compose.yml) (free on a VM
 you own), or the shape this install runs: Vercel + Neon, free, plus the worker
 on a ~$5/mo Railway service. The worker is the part that cannot be serverless —
-its loop is what syncs on a schedule, and it is why "Sync now" works and a
-newly linked handle mirrors immediately. The GitHub Actions cron that was meant
-to replace it **never fired once**; DEPLOY.md has the diagnosis and the
-verified Railway runbook.
+its loop is what syncs on a schedule, it serves the uncut live stream, and it
+is why "Sync now" works and a newly linked handle mirrors immediately. The
+GitHub Actions cron that was meant to replace it **never fired once**;
+DEPLOY.md has the diagnosis and the verified Railway runbook.
 
 ## How the numbers work
 
@@ -139,10 +139,13 @@ because the fit prices what you fail as well as what you clear), **Streak**, and
 
 **Everything is live.** Triggers on `submissions`, `topic_mastery` and `users`
 `pg_notify` a `standings` channel with the guild in the payload; one LISTEN
-connection per Node process fans out to an SSE stream per viewer (filtered
-server-side by guild, so a member who joins while you're watching appears
-immediately), and one client-side stream per tab tells every guild surface to
-re-fetch. When the order changes, rows **physically travel** from their old rank
+connection fans out to an SSE stream per viewer (filtered server-side by
+guild, so a member who joins while you're watching appears immediately), and
+one client-side stream per tab tells every guild surface to re-fetch. With a
+worker configured the stream comes from the worker itself — browsers connect
+to it directly with a token the app signs, so no serverless duration cap ever
+cuts it and the whole thing costs one database connection; without one, the
+web app serves the same stream per Node process. When the order changes, rows **physically travel** from their old rank
 to the new one via FLIP, carrying a `▲2` / `▼1` badge for a few seconds, and your
 own row gets a ring pulse when you climb. Under `prefers-reduced-motion` rows cut
 instead of sliding and the badge holds still; in a background tab the FLIP is

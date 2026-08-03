@@ -37,10 +37,50 @@ const globalForRT = globalThis as unknown as {
   rtSubscribers?: Set<Subscriber>;
   rtClient?: Client | null;
   rtConnecting?: Promise<void> | null;
+  rtIdleTimer?: ReturnType<typeof setTimeout> | null;
 };
 
 const subscribers: Set<Subscriber> =
   globalForRT.rtSubscribers ?? (globalForRT.rtSubscribers = new Set());
+
+/*
+  Nothing watching, nothing connected.
+
+  Postgres that scales to zero bills on "is anything connected", not on query
+  volume — and a parked LISTEN connection is indistinguishable from a busy one
+  to that meter. Left open, this single silent socket keeps the database awake
+  around the clock: 0.25 CU × 24h is 6 CU-hours a day, which spends a 100-hour
+  monthly allowance in under three weeks on an app nobody is using.
+
+  The delay is what makes closing safe. A serverless host cuts every SSE
+  response at its duration ceiling (60s, see the stream route) and the browser
+  reconnects a moment later, so closing the instant the count hits zero would
+  tear the listener down and rebuild it every minute. The grace window rides
+  over a reconnect and only really fires when the last tab has gone.
+*/
+const IDLE_CLOSE_MS = 30_000;
+
+function cancelIdleClose(): void {
+  if (!globalForRT.rtIdleTimer) return;
+  clearTimeout(globalForRT.rtIdleTimer);
+  globalForRT.rtIdleTimer = null;
+}
+
+function scheduleIdleClose(): void {
+  cancelIdleClose();
+  const timer = setTimeout(() => {
+    globalForRT.rtIdleTimer = null;
+    if (subscribers.size > 0) return;
+    const client = globalForRT.rtClient;
+    // Cleared before the close is awaited, so a viewer arriving mid-teardown
+    // builds a fresh client instead of adopting one already on its way out.
+    globalForRT.rtClient = null;
+    void client?.end().catch(() => {});
+  }, IDLE_CLOSE_MS);
+  // A pending close is not a reason to keep the process alive.
+  timer.unref?.();
+  globalForRT.rtIdleTimer = timer;
+}
 
 async function ensureListening(): Promise<void> {
   if (globalForRT.rtClient) return;
@@ -74,11 +114,22 @@ async function ensureListening(): Promise<void> {
     });
     client.on("error", () => {
       // Drop it and let the next subscriber reconnect, rather than sitting on
-      // a dead socket and silently never delivering again.
-      globalForRT.rtClient = null;
+      // a dead socket and silently never delivering again. End it too: a
+      // half-dead client that is merely forgotten stays a backend on the
+      // server until something else reaps it, and those accumulate.
+      if (globalForRT.rtClient === client) globalForRT.rtClient = null;
+      void client.end().catch(() => {});
     });
-    await client.connect();
-    await client.query("listen standings");
+    try {
+      await client.connect();
+      await client.query("listen standings");
+    } catch (err) {
+      // Without this the failed attempt stays cached as a rejected promise and
+      // every later subscriber inherits the same failure forever.
+      globalForRT.rtConnecting = null;
+      void client.end().catch(() => {});
+      throw err;
+    }
     globalForRT.rtClient = client;
     globalForRT.rtConnecting = null;
   })();
@@ -87,7 +138,13 @@ async function ensureListening(): Promise<void> {
 }
 
 export async function subscribe(fn: Subscriber): Promise<() => void> {
+  // Before connecting, so a viewer arriving during the grace window keeps the
+  // listener that is already up instead of racing its teardown.
+  cancelIdleClose();
   await ensureListening();
   subscribers.add(fn);
-  return () => subscribers.delete(fn);
+  return () => {
+    if (!subscribers.delete(fn)) return;
+    if (subscribers.size === 0) scheduleIdleClose();
+  };
 }

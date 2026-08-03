@@ -4,6 +4,9 @@ Personal competitive-programming trainer. Mirrors your Codeforces history,
 estimates per-topic mastery, tracks the mistakes you keep repeating, and picks
 what to solve next — training continuously toward ICPC Regionals.
 
+For the engineering record — what was built, and every problem that had to be
+solved to get there, with the measurements — see **[PROJECT.md](PROJECT.md)**.
+
 ## Architecture
 
 - **`src/`** — Next.js (App Router) + Tailwind. Reads Postgres directly in
@@ -45,14 +48,14 @@ few minutes; the dashboard shows progress).
 `pnpm worker` / `pnpm dev` run the two services separately. Config lives in
 `.env` (see [.env.example](.env.example)); the defaults match `pnpm db`.
 
-To put this in front of a club, see **[DEPLOY.md](DEPLOY.md)**. Two free
-options: a small always-on box running [docker-compose.yml](docker-compose.yml),
-or Vercel + Neon with the sync on GitHub Actions. The second keeps push updates
-(the stream is cut at the platform's duration limit and the client refetches on
-reconnect), but it has no worker process — so no "Sync now" button, no immediate
-first sync when someone links a handle, and syncing depends on a GitHub Actions
-schedule that **never fired at all** on the install this was written from.
-DEPLOY.md has the diagnosis; the box is the recommendation.
+To put this in front of a club, see **[DEPLOY.md](DEPLOY.md)**. Either one
+always-on box running [docker-compose.yml](docker-compose.yml) (free on a VM
+you own), or the shape this install runs: Vercel + Neon, free, plus the worker
+on a ~$5/mo Railway service. The worker is the part that cannot be serverless —
+its loop is what syncs on a schedule, and it is why "Sync now" works and a
+newly linked handle mirrors immediately. The GitHub Actions cron that was meant
+to replace it **never fired once**; DEPLOY.md has the diagnosis and the
+verified Railway runbook.
 
 ## How the numbers work
 

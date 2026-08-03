@@ -11,6 +11,11 @@
 #
 # The full-stack alternative is ../../docker-compose.yml, which also runs web,
 # Postgres and Caddy and needs no Vercel or Neon at all.
+#
+# On Railway none of this directory is used: railway.json at the repo root
+# builds worker/Dockerfile directly, Railway terminates TLS on its own domain,
+# and serve.py binds the injected PORT. These files are for a box of your own,
+# where Caddy is what stands between the shared token and plaintext HTTP.
 
 name: cp-trainer-worker
 

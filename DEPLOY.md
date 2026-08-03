@@ -41,9 +41,10 @@ first looks:
   point.** The intent was `.github/workflows/sync-codeforces.yml` on a cron,
   running the same pass the loop runs. On this install **that schedule never
   fired once** — see *When the schedule never runs* below before you depend on
-  it. The workflow is still there as a manual dispatch, which has never failed;
-  a run is ~20s for a couple of members, and the per-member cost is two
-  rate-limited CF calls (~5s).
+  it. What this install actually runs is Option B plus the worker on a ~$5/mo
+  Railway service — *The hybrid* below — which restores the loop, the **Sync
+  now** button, and the immediate first sync when a member links a handle. The
+  workflow remains as a manual dispatch fallback.
 - Neon's free database sleeps when idle, so the first visitor after a quiet
   spell waits a few seconds.
 
@@ -409,8 +410,56 @@ Work through it in this order — the first two are ordinary and do get hit:
 If all of that is clean and it still never fires, stop: it is not your config.
 Both the repo-settings toggle *and* making the repository public were tried here
 with no effect, matching an open, unanswered GitHub community report. Move the
-sync to a worker that owns its own loop — **Option A** — rather than spending
-another day on it.
+sync to a worker that owns its own loop — the hybrid below, or **Option A** —
+rather than spending another day on it.
+
+### The hybrid that this install actually runs: worker on Railway
+
+Vercel and Neon stay exactly as Option B left them; a ~$5/mo Railway service
+runs `worker/app.py`, whose loop syncs every member every
+`SYNC_INTERVAL_MINUTES`. That loop is what the Actions cron was standing in
+for. Verified end to end on 2026-08-03: the pass fires on the half hour with
+nothing external triggering it, and linking a handle syncs immediately.
+
+The repo already carries [`railway.json`](railway.json), which pins the build
+to `worker/Dockerfile` and the healthcheck to `/health` — no dashboard build
+configuration.
+
+1. **GitHub access.** Railway sees repositories through its GitHub App
+   *installation*, not your OAuth login. If its repo picker says "No
+   repositories found", fix the grant at github.com/settings/installations →
+   Railway → add the repo — and install under the account that owns the repo.
+   A grant is by repository *id*: re-creating a repo, or flipping
+   private→public, silently orphans the old grant. A half-broken connection
+   can still clone once and then never deliver another push, which presents as
+   Railway forever building a stale commit; "Redeploy" rebuilds that same
+   commit, so use "Deploy latest commit" after fixing the grant.
+2. **New service** from the repo. Region: match the database — Neon
+   `us-east-2` means **US East**, or every statement pays a cross-country
+   round trip (§ the 86 ms lesson).
+3. **Variables:** `DATABASE_URL` (the Neon **direct** string), `WORKER_TOKEN`
+   (`openssl rand -hex 32` — Vercel gets the identical value),
+   `SYNC_INTERVAL_MINUTES=30`, and `PORT=8787` so the app, the healthcheck and
+   the domain all agree on one port. `serve.py` binds whatever `PORT` says
+   (Railway injects one otherwise) and listens dual-stack (`::`), because
+   Railway's healthchecks arrive over IPv6 — an IPv4-only bind reads as
+   "service unavailable" from a process that is demonstrably up.
+4. **Networking → Generate Domain**, routed to **8787**. Then prove both
+   halves from any terminal: `GET /health` answers `{"ok":true}`, and an
+   unauthenticated `POST /sync/1` answers **401** — run the second one; a
+   worker that answers anything else is publicly triggerable.
+5. **Vercel:** set `WORKER_URL=https://<the domain>` (no trailing slash) and
+   `WORKER_TOKEN`, then redeploy. The Settings page swaps the schedule notice
+   for a live **Sync now** button — that's `workerConfigured()` flipping, and
+   the same flip makes a newly linked handle mirror its history immediately.
+6. **Never scale above 1 replica.** The Codeforces rate limiter and per-user
+   locks live in process memory; two replicas is two rate limiters from one
+   address.
+
+The box is stateless — all data is in Neon — so if the service dies, recreate
+it from these six steps and nothing is lost. `sync-codeforces.yml` remains as
+a manual dispatch for the day the worker is down, and the Settings card shows
+**stale** once nothing has completed for two hours.
 
 ### 7. Take the install, then open it up
 

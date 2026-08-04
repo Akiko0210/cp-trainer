@@ -1,34 +1,95 @@
 # CP Trainer — Project Description & Engineering Log
 
-A competitive-programming training platform that mirrors a user's Codeforces
-history, fits a calibrated per-topic ability estimate from it, tracks the
-mistakes they repeat, and recommends what to solve next — with a live club
-leaderboard on top. Built for SJSU Competitive Programming, training toward
-ICPC Regionals.
+## What it is
+
+A competitive-programming training platform built for SJSU Competitive
+Programming, training toward ICPC Regionals. It mirrors each member's entire
+Codeforces history into its own database, fits a calibrated per-topic ability
+estimate from that history (successes *and* failures, contest and practice
+weighted differently), tracks the mistakes a member repeats, recommends what to
+solve next, and runs a live club leaderboard with per-topic champions on top.
+Solves made anywhere count — the mirror is the member's full judge history, not
+just what happened inside the app.
+
+## How it runs today
+
+Three deployed pieces, each doing the one thing its platform is good at:
+
+- **Web app on Vercel** (Next.js 15 App Router, TypeScript, Tailwind) — every
+  page is a server component reading Postgres directly; serverless, scales to
+  zero, free tier.
+- **Postgres on Neon** (free tier) — one database, 15 tables; judge-mirrored
+  `submissions` kept separate from user-supplied `attempts`/`mistakes` and
+  reconciled by problem and time window. Sleeps when idle; the app is built to
+  let it.
+- **A stateful Python worker on Railway** (FastAPI + uvicorn, ~$5/mo) — the one
+  process that stays up. It owns all bulk Codeforces traffic behind a single
+  rate-limited in-process queue (≥2.2 s between calls), runs the sync loop
+  every 30 minutes, recomputes the ability model, and serves the live
+  leaderboard stream to browsers directly. Config-as-code in `railway.json`;
+  pinned to exactly one replica because the rate limiter lives in process
+  memory.
+
+A macOS menu-bar app (Swift/AppKit) shows the day's streak via a revocable
+device token. GitHub Actions survives only as a manual "sync now from nothing"
+fallback — its cron never fired once (§7). Two self-hosted alternatives ship in
+the repo: a full single-box `docker-compose.yml` (web + worker + Postgres +
+Caddy) and a worker-only `deploy/worker/` for a box beside Vercel/Neon.
+
+**Data flow in one line:** Codeforces → worker (rate-limited, batched upserts)
+→ Postgres → triggers `pg_notify` → worker's single `LISTEN` connection →
+Server-Sent Events → every open leaderboard; the Next app reads Postgres for
+pages and calls the worker only for "act now" operations (link-handle sync,
+Sync now, verdict re-check), authenticated by a shared token.
+
+## Technologies
+
+| layer | choices |
+|---|---|
+| **Web** | Next.js 15 App Router · React 19 · TypeScript · Tailwind · SSE via `EventSource` · FLIP animations |
+| **Worker** | Python 3.13 · FastAPI · uvicorn · psycopg 3 (async for `LISTEN`) · httpx · uv for packaging |
+| **Database** | PostgreSQL 16 · `LISTEN/NOTIFY` triggers · multi-row `INSERT … ON CONFLICT` upserts · node-postgres + custom INT8 parser |
+| **Modeling** | Rasch / 1-PL IRT (Elo 400-scale) MAP fit, two-level with partial pooling and selection-bias correction — pure-stdlib Python |
+| **Auth** | GitHub OAuth (hand-rolled, no NextAuth) · shared-token worker auth (`secrets.compare_digest`) · HMAC-SHA256 signed stream URLs · revocable device tokens |
+| **Infra** | Vercel · Neon · Railway (`railway.json`) · Docker multi-stage · Caddy · GitHub Actions (manual fallback) |
+| **Native** | Swift + AppKit menu-bar app |
+
+## Current capabilities
+
+- **Full-history mirror, fast.** A first sync of a ~2,700-submission account
+  completes in seconds (it took 20 minutes before batching, §1). Refreshes run
+  automatically every 30 minutes; linking a handle syncs immediately; **Sync
+  now** works because there is a live process to poke.
+- **Calibrated ability, per topic.** Eight ICPC categories and ~70 topics, each
+  with a rating-scale estimate whose error against a known ground truth was
+  driven from +467 to +108 points (§3), plus a 0–100 "heat" score explained by
+  the exact factors that produced it.
+- **Live everywhere.** Solves, mastery moves, and roster changes appear on
+  every open dashboard within a second, streamed uncut from the worker — the
+  serverless 60-second stream cuts and their 626 timeouts/day are gone (§9.3).
+- **Honest status.** Timestamps render in the viewer's timezone (§4.9), and the
+  sync card says **stale** when nothing has completed for two hours instead of
+  claiming "up to date" forever (§7.2).
+- **Practice beyond Codeforces.** 165 classified ICPC contest sets (§10.2) with
+  timer-based solve tracking that respects Kattis's no-scraping rules (§10.1);
+  mistake tagging feeds a review queue and the recommender.
+- **A club, not just a user.** Guilds with speakable invite codes, live
+  champions per category ranked on improvement rather than recency, and
+  ownership that survives the owner leaving (§5.8).
 
 This document is the engineering record: what was accomplished, and every
 problem — including the small and embarrassing ones — that had to be solved to
 get there. Entries are written in **Google XYZ form** ("accomplished **X**, as
-measured by **Y**, by doing **Z**"), each followed by the symptom, the root
-cause, and the fix.
-
----
+measured by **Y**, by doing **Z**"), and each **Z names the technology or
+technique that did the work**, followed by the symptom, the root cause, and the
+fix.
 
 ## At a glance
 
 | | |
 |---|---|
-| **Stack** | Next.js (App Router) · TypeScript · Tailwind · Python (FastAPI) · PostgreSQL 16 · Swift (AppKit) |
-| **Scale** | ~13,600 lines across 134 tracked files · 14 tables · 23 API routes · 34 commits |
-| **Surfaces** | Web app, Python sync worker, macOS menu-bar app, Docker/Compose + Vercel/Neon/Railway deployments |
+| **Scale** | ~17,400 lines across 137 tracked files · 15 tables · 24 API routes · 36 commits |
 | **External systems** | Codeforces API, open.kattis.com, usaco.guide, GitHub OAuth, GitHub Actions |
-| **Modeling** | Rasch / 1-PL IRT maximum-a-posteriori ability fit, two-level with partial pooling |
-
-**Architecture in one line:** `src/` (Next.js) reads Postgres directly and never
-calls Codeforces in bulk; `worker/` (Python) owns *all* bulk CF traffic behind a
-single rate-limited queue plus the estimator; `db/schema.sql` keeps
-judge-mirrored `submissions` separate from user-supplied `attempts`/`mistakes`
-and reconciles them by problem and time window.
 
 ---
 
@@ -36,7 +97,8 @@ and reconciles them by problem and time window.
 
 - **Cut first-sync time by 99.8%, from 1,214 s to ~2 s** for a 2,714-submission
   account, by replacing per-row writes with three batched phases per page —
-  10,874 SQL statements reduced to 25.
+  multi-row `INSERT … ON CONFLICT … RETURNING` upserts via psycopg — 10,874 SQL
+  statements reduced to 25.
 - **Cut catalog seeding from 67 minutes to seconds** across the ~14,000-problem
   Codeforces problemset, by reusing the same batched helpers — ~49,000 round
   trips reduced to 4 statements.
@@ -56,6 +118,11 @@ and reconciles them by problem and time window.
 - **Reduced idle database cost from 6 CU-hours/day to near zero**, by closing the
   `LISTEN` connection when the last viewer disconnects — verified against a live
   Postgres, connection count `0 → 1 → 0`.
+- **Moved the live leaderboard off serverless entirely** — 626 stream-cut
+  timeouts/day to zero, one `LISTEN` connection total, streams no longer cut
+  every 60 s — by serving SSE from the stateful worker (FastAPI streaming
+  response, single async `LISTEN`, `asyncio.Queue` fan-out) with cross-origin
+  auth via HMAC-SHA256-signed URLs minted by the web app (§9.3).
 - **Secured a public multi-tenant deployment**, by adding shared-token auth to a
   worker whose endpoints could re-sync any member's history and crawl a third
   party's website, plus operator-gating the crawl endpoint and per-device
@@ -71,7 +138,12 @@ and reconciles them by problem and time window.
 
 > **Cut a 2,714-submission first sync from 1,214 s to ~2 s (99.8%)**, as measured
 > by SQL statements issued (10,874 → 25) against the same account, by restructuring
-> the page loop into three batched phases — problems, CF tag links, then submissions.
+> the page loop into three batched phases — problems, CF tag links, then submissions
+> — each a single multi-row `INSERT … ON CONFLICT DO UPDATE … RETURNING` built
+> with psycopg parameter lists. Rows are keyed by `external_id` on the way in
+> (`ON CONFLICT` refuses to touch the same row twice in one statement, and a page
+> repeats problems constantly) and ids are mapped back by key, never by position —
+> a multi-row `RETURNING` gives no ordering guarantee.
 
 - **Symptom.** Onboarding simply never completed for anyone with a real history.
   The GitHub Actions job is capped at 15 minutes; a first sync took ~20.
@@ -150,8 +222,9 @@ and reconciles them by problem and time window.
 
 ### 2.4 `bigint` arrives as a string, and every real-time event vanished
 
-> **Fixed 100% event loss on the live leaderboard**, by installing an INT8 type
-> parser in `db.ts` so ids compare equal across the driver and JSON payloads.
+> **Fixed 100% event loss on the live leaderboard**, by registering a custom type
+> parser with node-postgres (`types.setTypeParser` for OID 20/INT8) in `db.ts` so
+> ids compare equal across the driver and JSON payloads.
 
 - **Symptom.** The board looked connected and never moved.
 - **Root cause.** node-postgres returns `bigint` as a **string** to protect
@@ -190,7 +263,10 @@ and reconciles them by problem and time window.
 > **Cut ability-estimate error from +467 to +108 points** against a ground-truth
 > rating of 1595, by replacing an average of solved-problem ratings with a
 > maximum-a-posteriori fit under the Rasch / 1-PL IRT (Elo 400-scale) model over
-> successes **and** failures.
+> successes **and** failures — a logistic log-likelihood plus Gaussian prior
+> whose gradient is monotone with exactly one root, found by bisection (no
+> step-size or convergence tuning to get wrong), in pure-stdlib Python (`math`
+> only, no numpy), with per-observation weights for regime and freshness.
 
 - **Symptom.** The old heuristic read **2062** for a 1595-rated account — whose
   solves in that topic average 1677 and whose *failures* average 2045.
@@ -220,10 +296,11 @@ and reconciles them by problem and time window.
 
 > **Put per-topic and global estimates on one comparable scale**, by fitting two
 > levels — a calibrated global anchor over full contest sets, then per-topic fits
-> over engaged problems pooled toward it — and storing the measured gap between
-> those universes (`users.selection_offset`) to subtract from topic estimates.
-> Partial pooling means a topic with three observations reads "about your usual
-> level" instead of swinging wildly.
+> over engaged problems shrunk toward it with an empirical-Bayes prior (partial
+> pooling) — and storing the measured gap between those universes
+> (`users.selection_offset`) to subtract from topic estimates. Pooling means a
+> topic with three observations reads "about your usual level" instead of
+> swinging wildly.
 
 ### 3.5 Ranking champions on the wrong number
 
@@ -260,11 +337,17 @@ and reconciles them by problem and time window.
 > `maxDuration = 60` (the platform ceiling) and having the client refetch on every
 > reconnect — so a cut stream costs a blink, not a missed event.
 
+- **Since superseded.** The stream now comes from the stateful worker and is
+  never cut at all (§9.3); this route survives as the fallback for worker-less
+  installs, where the mitigation above is still what makes it correct.
+
 ### 4.3 Four surfaces, four connections, four opinions
 
 > **Cut per-event network traffic from 8+ requests to 1** and removed the
-> possibility of surfaces disagreeing, by holding **one** `EventSource` per tab and
-> **one** champions store that every badge reads from.
+> possibility of surfaces disagreeing, by holding **one** `EventSource` per tab in
+> a root-layout React context provider that hands consumers a version counter —
+> events are coalesced with a 400 ms timer, and each surface refetches its own
+> data when the counter bumps, so every ranking decision stays in SQL.
 
 - **Context.** Guild standings appear in four places: header chip, dashboard
   category cards, category-page board, and `/guild`. Per-component streams would
@@ -312,7 +395,11 @@ and reconciles them by problem and time window.
 ### 4.9 Every timestamp showed the server's timezone
 
 > **Corrected timestamps for 100% of users outside UTC**, by rendering the server
-> snapshot as explicit UTC and swapping to the viewer's locale and zone on hydration.
+> snapshot as explicit UTC and swapping to the viewer's locale and zone on
+> hydration — via React's `useSyncExternalStore`, whose server-snapshot argument
+> exists for exactly this: the server pass and the first client pass agree by
+> construction, then the zone-aware value arrives immediately after (an effect
+> would trip the `react-hooks/set-state-in-effect` lint and render twice).
 
 - **Symptom.** A sync that ran at 10:33 AM in California displayed as 5:33 PM —
   defeating the field's only job, judging whether the last run was recent.
@@ -342,8 +429,10 @@ and reconciles them by problem and time window.
 ### 5.1 The worker had no authentication at all
 
 > **Closed a full-takeover hole before public deployment**, by requiring a shared
-> token on every acting worker endpoint — leaving only `/health` open, because a
-> platform probe cannot hold a secret and it reveals nothing.
+> token (`X-Worker-Token`, checked with `secrets.compare_digest` so the comparison
+> is constant-time, wired as a FastAPI dependency) on every acting worker endpoint
+> — leaving only `/health` open, because a platform probe cannot hold a secret and
+> it reveals nothing.
 
 - **Exposure.** The endpoints re-sync *any* member's full Codeforces history and
   crawl Kattis. Reaching the address must not be the same thing as being allowed to
@@ -550,6 +639,11 @@ and reconciles them by problem and time window.
 > Documented: a 30-member club crosses into ~3 billed minutes a run and must drop
 > back to hourly.
 
+- **Historical.** The arithmetic was correct and the schedule still never fired
+  (§7.1); the cron was deleted and the loop now lives in the Railway worker
+  (§9.3), where the concurrency question is answered by "exactly one process"
+  instead of a YAML stanza.
+
 ---
 
 ## 8 · Serverless architecture constraints
@@ -626,6 +720,37 @@ and reconciles them by problem and time window.
 > holds the sockets reduces the fan-out to an in-process function call — and lets the
 > database sleep. Scoped, with its costs named (cross-origin auth; the box becomes
 > load-bearing) rather than adopted silently.
+
+### 9.3 Streaming moved to the worker: the conclusion, implemented
+
+> **Eliminated stream cuts (626 timeouts/day → 0) and reduced realtime database
+> connections to exactly one**, by serving the leaderboard stream from the
+> stateful Railway worker: a FastAPI streaming response per viewer fed from one
+> shared async `LISTEN` connection (psycopg `AsyncConnection` + `add_notify_handler`)
+> fanned out through per-viewer `asyncio.Queue`s, filtered by the `guild_id`
+> already present in every trigger payload.
+
+- **Cross-origin auth without a session.** The browser connects straight to the
+  worker's domain, where the Vercel session cookie does not travel. The web app
+  mints a short-lived **HMAC-SHA256-signed URL** (payload `guild_id`/`user_id`/
+  `exp`, base64url, keyed by the `WORKER_TOKEN` both sides already share — no
+  new secret) via a tiny authenticated route; the worker verifies with
+  `hmac.compare_digest` and never touches the database to do it. On expiry the
+  client fetches a fresh URL and reconnects — `EventSource` retries the *same*
+  URL forever, so expiry handling has to live in the client's error path.
+- **The graceful-degradation ladder.** Worker configured → uncut stream from the
+  worker. Worker down → the client backs off and falls to 20-second polling
+  (never wrong for longer than the interval). No worker configured at all → the
+  old Vercel SSE route (§4.2) still serves, cuts and all. Same client code walks
+  all three rungs.
+- **Neon still sleeps.** The worker's listener follows the same
+  nothing-watching-nothing-connected rule as §9.1 — the `LISTEN` connection
+  opens on the first viewer and closes ~30 s after the last one leaves, so an
+  idle club costs no compute; the only standing wake-ups are the 30-minute sync
+  passes.
+- **What Vercel stopped doing.** No lambda holds a `LISTEN` connection on any
+  install with a worker; `/api/guild/stream`'s 60-second
+  `FUNCTION_INVOCATION_TIMEOUT`s (626/day, previously by design) end entirely.
 
 ---
 
@@ -733,3 +858,9 @@ Not omissions — decisions, with the schema already accommodating them.
    eventually disagree in one of them.
 6. **State the limits.** Every fix above that is partial says so — the frozen-instance
    caveat, `seed_usaco` still being slow, the worker box becoming load-bearing.
+7. **A timer is not a process.** Every scheduling workaround — the Actions cron,
+   Vercel cron, an external pinger — was renting a *when* for a workload whose
+   real need was a *where*: memory that survives between requests (a rate-limit
+   lock, a subscriber set, an open socket). One $5 stateful worker dissolved the
+   cron problem, the stream cuts, and the per-lambda `LISTEN` cost in a single
+   move (§9.3).

@@ -183,6 +183,15 @@ body {
   letter-spacing: -0.01em;
 }
 
+/* A row that scrolls sideways on phones (the header nav) without showing a
+   scrollbar strip — the clipped pill peeking in is the affordance instead. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

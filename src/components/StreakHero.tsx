@@ -116,7 +116,9 @@ export default function StreakHero({
         </div>
 
         {/* ---- the last two weeks ---- */}
-        <div className="flex items-end gap-[5px]">
+        {/* 14 fixed 24px cells are wider than a phone; below sm the strip
+            takes the full row with smaller cells spread across it. */}
+        <div className="flex w-full items-end justify-between sm:w-auto sm:justify-start sm:gap-[5px]">
           {days.map((d, i) => {
             const isToday = i === days.length - 1;
             const dow = new Date(`${d.day}T12:00:00Z`).getUTCDay();
@@ -124,7 +126,7 @@ export default function StreakHero({
               <div key={d.day} className="flex flex-col items-center gap-1.5">
                 <span
                   title={`${d.day}: ${d.active ? "practised" : "no practice"}`}
-                  className={`block size-6 rounded-[6px] ${
+                  className={`block size-4 rounded-[4px] sm:size-6 sm:rounded-[6px] ${
                     isToday && atRisk ? "streak-pulse" : ""
                   }`}
                   style={{

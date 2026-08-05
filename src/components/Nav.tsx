@@ -34,8 +34,11 @@ export default function Nav({
   const pathname = usePathname();
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-page/85 backdrop-blur">
-      <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-2 px-4 sm:gap-4 sm:px-6">
-        <Link href="/" className="flex items-center gap-2.5 rounded-md">
+      {/* On phones the row can't hold links *and* chips, and a row that
+          overflows forces the whole page wider than the screen — so the links
+          drop to their own edge-to-edge line and scroll sideways if squeezed. */}
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-2 px-4 sm:h-14 sm:flex-nowrap sm:gap-x-4 sm:px-6">
+        <Link href="/" className="flex h-12 items-center gap-2.5 rounded-md sm:h-auto">
           <span
             aria-hidden
             className="num grid size-7 place-items-center rounded-[8px] bg-accent text-[11px] font-bold text-accent-ink"
@@ -47,7 +50,10 @@ export default function Nav({
           </span>
         </Link>
 
-        <nav className="ml-2 flex items-center gap-1 sm:ml-6" aria-label="Main">
+        <nav
+          className="no-scrollbar order-last -mx-4 flex basis-full items-center gap-1 overflow-x-auto px-4 pb-2 sm:order-none sm:mx-0 sm:ml-6 sm:basis-auto sm:overflow-visible sm:p-0"
+          aria-label="Main"
+        >
           {LINKS.map((l) => {
             const active =
               l.href === "/" ? pathname === "/" : pathname.startsWith(l.href);
@@ -56,7 +62,7 @@ export default function Nav({
                 key={l.href}
                 href={l.href}
                 aria-current={active ? "page" : undefined}
-                className={`rounded-full px-3 py-1.5 text-sm transition-colors ${
+                className={`shrink-0 rounded-full px-3 py-1.5 text-sm transition-colors ${
                   active
                     ? "bg-accent-soft font-medium text-accent-dk"
                     : "text-muted hover:text-ink"

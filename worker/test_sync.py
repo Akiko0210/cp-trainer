@@ -111,11 +111,19 @@ def account(n: int, verdicts: dict[int, str] | None = None) -> list[dict]:
 
 
 class FakeCF:
-    """Stands in for cf_api.call. `fail_on_page` raises to simulate a kill."""
+    """Stands in for cf_api.call. `fail_on_page` raises to simulate a kill;
+    `on_page` runs before each user.status page is returned, to interleave
+    concurrent database activity (an unbind) with the walk."""
 
-    def __init__(self, subs: list[dict], fail_on_page: int | None = None):
+    def __init__(
+        self,
+        subs: list[dict],
+        fail_on_page: int | None = None,
+        on_page=None,
+    ):
         self.subs = subs
         self.fail_on_page = fail_on_page
+        self.on_page = on_page
         self.status_calls = 0
 
     async def call(self, method: str, **params):
@@ -124,6 +132,8 @@ class FakeCF:
         if method != "user.status":
             raise AssertionError(f"unexpected CF method {method}")
         self.status_calls += 1
+        if self.on_page:
+            self.on_page(self.status_calls)
         if self.fail_on_page == self.status_calls:
             raise RuntimeError("simulated kill mid-walk")
         start, count = params["from"], params["count"]
@@ -542,6 +552,72 @@ async def test_quick_leaves_cursor(conn, user_id: int) -> None:
     check("cursor at newest id", c["cursor"], 1120)
 
 
+async def test_unbind_mid_walk(conn, user_id: int) -> None:
+    """Unbinding while a walk is in flight: the app purges the mirror, so the
+    walk must stop rather than repopulate it with the old handle's rows or
+    re-create sync_state (see sync._still_bound)."""
+    print("\nunbound mid-walk")
+    with conn.cursor() as cur:
+        cur.execute("delete from submissions where user_id = %s", (user_id,))
+        cur.execute(
+            "update sync_state set last_synced_submission_id = 0"
+            " where user_id = %s and source = 'cf_api'",
+            (user_id,),
+        )
+    conn.commit()
+
+    def unbind(page: int) -> None:
+        # What the app's DELETE /api/user does, between page commits.
+        if page != 2:
+            return
+        with conn.cursor() as cur:
+            cur.execute(
+                "delete from submissions where user_id = %s and source = 'cf_api'",
+                (user_id,),
+            )
+            cur.execute("delete from topic_mastery where user_id = %s", (user_id,))
+            cur.execute(
+                "delete from sync_state where user_id = %s and source = 'cf_api'",
+                (user_id,),
+            )
+            cur.execute(
+                "update users set cf_handle = null, cf_rating = null,"
+                " cf_max_rating = null, cf_rank = null where id = %s",
+                (user_id,),
+            )
+        conn.commit()
+
+    install(FakeCF(account(5), on_page=unbind))
+    try:
+        await sync.sync_user(conn, user_id)
+        check("raised", "no exception", "ValueError")
+    except ValueError:
+        pass
+
+    c = counts(conn, user_id)
+    check("mirror stays purged", c["submissions"], 0)
+    check("sync_state stays gone", c["status"], None)
+    with conn.cursor() as cur:
+        cur.execute(
+            "select cf_handle, cf_rating from users where id = %s", (user_id,)
+        )
+        row = cur.fetchone()
+    check("handle stays unbound", row["cf_handle"], None)
+    check("rating not resurrected", row["cf_rating"], None)
+
+    # Re-binding starts over: no cursor, so a full walk mirrors everything.
+    with conn.cursor() as cur:
+        cur.execute(
+            "update users set cf_handle = %s where id = %s", (HANDLE, user_id)
+        )
+    conn.commit()
+    install(FakeCF(account(5)))
+    await sync.sync_user(conn, user_id)
+    c = counts(conn, user_id)
+    check("rebind mirrors fully", c["submissions"], 5)
+    check("cursor at newest id", c["cursor"], 1005)
+
+
 # --- runner -----------------------------------------------------------------
 
 
@@ -567,6 +643,7 @@ async def main() -> int:
             await test_seed_problemset(conn)
             test_seeder_helpers(conn, user_id)
             await test_quick_leaves_cursor(conn, user_id)
+            await test_unbind_mid_walk(conn, user_id)
         finally:
             teardown(conn, user_id)
 

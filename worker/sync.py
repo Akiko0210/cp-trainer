@@ -180,6 +180,24 @@ def write_page(cur, user_id: int, subs: list[dict], topic_ids: dict) -> None:
         )
 
 
+def _still_bound(cur, user_id: int, handle: str) -> bool:
+    """Is `handle` still the one this user is bound to?
+
+    The walk races the app's unbind/rebind: the handle was read once at the
+    start, pages commit one at a time, and a first sync can run for minutes.
+    Unbinding purges the mirror — a walk still in flight would repopulate it
+    with the old handle's rows, re-create sync_state, and (at the end) write
+    rating fields back onto an account that just removed them. So every page
+    re-checks the binding before it writes. Case-insensitive, because CF
+    handles are and a re-link may change only the casing.
+    """
+    cur.execute("select cf_handle from users where id = %s", (user_id,))
+    row = cur.fetchone()
+    return bool(
+        row and row["cf_handle"] and row["cf_handle"].lower() == handle.lower()
+    )
+
+
 def _persist_cursor(cur, user_id: int, last_synced: int) -> None:
     """Advance the resume point, in the same transaction as the rows it covers.
 
@@ -262,9 +280,15 @@ async def _run(conn, user_id: int, handle: str, last_synced: int, quick: bool) -
             cur.execute(
                 """
                 update users set cf_rating = %s, cf_max_rating = %s, cf_rank = %s
-                where id = %s
+                where id = %s and lower(cf_handle) = lower(%s)
                 """,
-                (info.get("rating"), info.get("maxRating"), info.get("rank"), user_id),
+                (
+                    info.get("rating"),
+                    info.get("maxRating"),
+                    info.get("rank"),
+                    user_id,
+                    handle,
+                ),
             )
         conn.commit()
 
@@ -294,6 +318,8 @@ async def _run(conn, user_id: int, handle: str, last_synced: int, quick: bool) -
         complete = reached_known or len(subs) < count
 
         with conn.cursor() as cur:
+            if not _still_bound(cur, user_id, handle):
+                raise ValueError(f"{handle} was unlinked mid-sync; stopping")
             if fresh:
                 write_page(cur, user_id, fresh, topic_ids)
                 new_count += len(fresh)
@@ -308,6 +334,12 @@ async def _run(conn, user_id: int, handle: str, last_synced: int, quick: bool) -
             # reach known data. The next full sync re-walks from the top.
             break
         start += count
+
+    # Same race, other end: don't recompute mastery (or reconcile) from a
+    # mirror that an unbind just purged.
+    with conn.cursor() as cur:
+        if not _still_bound(cur, user_id, handle):
+            raise ValueError(f"{handle} was unlinked mid-sync; stopping")
 
     reconcile_attempts(conn, user_id)
     topics_written = mastery.recompute_user(conn, user_id)

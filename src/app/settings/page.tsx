@@ -4,9 +4,11 @@ import { Card, Label } from "@/components/ui";
 import { one } from "@/lib/db";
 import { workerConfigured } from "@/lib/env";
 import { getCurrentUser, getSyncState } from "@/lib/queries";
+import LinkHandle from "./LinkHandle";
 import PairDevice from "./PairDevice";
 import RefreshIcpc from "./RefreshIcpc";
 import SyncNow from "./SyncNow";
+import UnlinkHandle from "./UnlinkHandle";
 
 export const dynamic = "force-dynamic";
 
@@ -32,23 +34,29 @@ export default async function SettingsPage() {
 
       <Card className="mb-4">
         <Label>Codeforces account</Label>
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="num text-lg font-semibold">{user.cf_handle}</div>
-            <div className="mt-0.5 text-sm text-muted">
-              {user.cf_rank ?? "unrated"} ·{" "}
-              <span className="num">{user.cf_rating ?? "—"}</span>
-              {user.cf_max_rating && (
-                <>
-                  {" "}
-                  (max <span className="num">{user.cf_max_rating}</span>)
-                </>
-              )}
+        {user.cf_handle ? (
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="num text-lg font-semibold">{user.cf_handle}</div>
+              <div className="mt-0.5 text-sm text-muted">
+                {user.cf_rank ?? "unrated"} ·{" "}
+                <span className="num">{user.cf_rating ?? "—"}</span>
+                {user.cf_max_rating && (
+                  <>
+                    {" "}
+                    (max <span className="num">{user.cf_max_rating}</span>)
+                  </>
+                )}
+              </div>
             </div>
+            <UnlinkHandle handle={user.cf_handle} />
           </div>
-        </div>
+        ) : (
+          <LinkHandle syncsOnLink={worker} />
+        )}
       </Card>
 
+      {user.cf_handle && (
       <Card>
         <Label>Sync</Label>
         <dl className="grid grid-cols-2 gap-y-2 text-sm">
@@ -92,6 +100,7 @@ export default async function SettingsPage() {
           history.
         </p>
       </Card>
+      )}
 
       <Card className="mt-4">
         <Label>Menu bar app</Label>

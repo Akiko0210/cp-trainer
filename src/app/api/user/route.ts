@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { fetchHandleInfo, HandleNotFound } from "@/lib/cf";
-import { one, q } from "@/lib/db";
+import { bindCf, unbindCf } from "@/lib/cf-account";
+import { one } from "@/lib/db";
 import { workerConfigured } from "@/lib/env";
 import { WorkerOfflineError, workerPost } from "@/lib/worker";
 
@@ -11,7 +12,8 @@ import { WorkerOfflineError, workerPost } from "@/lib/worker";
   In v1 this created the single user row. Now identity comes from GitHub, so
   this only attaches (or changes) the handle — and it refuses a handle already
   claimed by someone else, because two members sharing a handle would make the
-  club leaderboard meaningless.
+  club leaderboard meaningless. Changing to a *different* handle purges the
+  old one's mirrored history first (see lib/cf-account); DELETE unbinds.
 */
 export async function POST(req: Request) {
   const user = await getSessionUser();
@@ -60,12 +62,7 @@ export async function POST(req: Request) {
     );
   }
 
-  await q(
-    `update users set cf_handle = $1, cf_rating = $2, cf_max_rating = $3,
-                      cf_rank = $4
-     where id = $5`,
-    [info.handle, info.rating, info.maxRating, info.rank, user.id],
-  );
+  await bindCf(user.id, info, user.cf_handle);
 
   // Kick off the first mirror where there is something to kick. Where there
   // isn't, the scheduled sync picks the member up on its next pass — so the
@@ -81,4 +78,14 @@ export async function POST(req: Request) {
     }
   }
   return NextResponse.json({ id: user.id, handle: info.handle, syncing });
+}
+
+// Unbind. Removes the mirrored CF history along with the handle (it is that
+// handle's history, not this account's); attempts, mistake tags and manual
+// Kattis solves stay. Idempotent — unbinding an unbound account is a no-op.
+export async function DELETE() {
+  const user = await getSessionUser();
+  if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
+  await unbindCf(user.id);
+  return NextResponse.json({ ok: true });
 }

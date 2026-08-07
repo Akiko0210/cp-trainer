@@ -177,7 +177,11 @@ never needs an OAuth app. That route 404s in production or as soon as real
 credentials are set.
 
 Each member links their own Codeforces handle (one handle per member, enforced),
-and the worker syncs everyone on its schedule.
+and the worker syncs everyone on its schedule. A handle can be unlinked again
+from Settings: the mirrored CF history and topic mastery go with it — they are
+that handle's judge record, not the account's — while attempts, mistake tags
+and Kattis solves stay. Linking a different handle does the same purge first,
+so two people's histories never merge under one account.
 
 To see a populated guild before real members join, apply
 [db/seed-demo-guild.sql](db/seed-demo-guild.sql) — six demo members on real

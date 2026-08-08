@@ -191,11 +191,16 @@ file says how to remove them.
 
 ## Streak, and the menu bar readout
 
-The dashboard leads with the streak because the motivating moment isn't "you
+The dashboard opens with the streak because the motivating moment isn't "you
 have a streak" — it's "your streak is alive and today is still open". Three
 states: **on fire** (today logged), **at risk** (alive, today still open — the
 one time the UI actively nags), and **cold**. A day counts if you made a
 Codeforces submission *or* ran a timed attempt, so ICPC work counts too.
+
+It's a slim band, not a hero. The streak is a *status* and Mastery is the
+page's subject; a status worth a fifth of the viewport pushes the thing you
+came for below the fold. Same three states, one row
+([StreakBar.tsx](src/components/StreakBar.tsx)).
 
 The same three states sit in the site header on every page, as a chip: the
 streak gradient when today is logged, an outlined pulsing flame and `4!` when
@@ -230,6 +235,59 @@ defaults write local.cptrainer.streak deviceToken <token from Settings>
 
 The token is an ordinary session row: it expires on its own, and pairing again
 replaces it.
+
+## Upcoming contests
+
+The worker mirrors each judge's contest calendar into a global
+`upcoming_contests` table (one fetch per source every
+`CONTEST_REFRESH_MINUTES`, default 6 hours — see
+[contests.py](worker/contests.py)); the app reads that table, never a judge.
+
+Two surfaces, one mirror. The **dashboard card** is the next five rounds in
+*your* timezone with a live countdown; **`/contests`** is the whole calendar,
+grouped by day (Today / Tomorrow / weekday) and filtered by judge and by how
+far ahead you care to look. Each row carries its judge's mark rather than
+repeating the platform's name in the text.
+
+Those marks are not the judges' brand colours, on purpose: Codeforces red,
+LeetCode orange and HackerRank green would collide head-on with the one colour
+rule this app has — green/red/amber mean AC/WA/TLE and nothing else — and a red
+badge beside a red verdict badge reads as a verdict. Each judge gets the
+nearest hue from the category palette instead.
+
+Sources follow the same rule that keeps this app from scraping Kattis — use
+what each site permits:
+
+- **Codeforces** — the official API, through the shared rate-limited queue.
+- **AtCoder** — no contests API exists, but its robots.txt allows
+  `/contests/`, so the schedule table is read from the page itself (regex, the
+  same way the Kattis archive crawl reads pages).
+- **CodeChef** — the JSON endpoint its own frontend uses; `/api` is not
+  disallowed by their robots.txt.
+- **Everything else via [clist.by](https://clist.by)**, opt-in: set
+  `CLIST_USERNAME` + `CLIST_API_KEY` (free account → API key), and optionally
+  `CLIST_RESOURCES` (comma-separated hosts, default
+  `leetcode.com,usaco.org`). This is how LeetCode arrives — its robots.txt
+  forbids `/graphql`, so it is never fetched directly. Hosts already covered
+  natively are filtered out so nothing appears twice.
+
+Each source replaces only its own rows on refresh, so a rescheduled round
+moves, a cancelled one disappears, and one judge's outage never blanks the
+others.
+
+**Remind me** turns on a browser notification 15 minutes before each round. It
+is a plain Web Notification scheduled in the tab, so it only fires while a
+trainer tab is open — the honest constraint, accepted on purpose: real push
+would need a service worker, a push service, and server-side device rows, all
+to duplicate what codeforces.com's own calendar subscription already does. The
+case this covers is the one that actually happens: you are grinding in one tab
+and would otherwise miss the round starting. Each reminder fires once (recorded
+per contest in `localStorage`), and it is scheduled from the *unfiltered* list —
+the filter on `/contests` is a view of the board, not a decision about which
+rounds you get told about.
+
+Kattis has no contest feed (no API) — the same reason its solves can't be
+mirrored — so it is the one judge the calendar can't carry.
 
 ## ICPC practice (Kattis)
 

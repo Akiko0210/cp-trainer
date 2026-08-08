@@ -12,6 +12,7 @@ const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/solve", label: "Solve" },
   { href: "/icpc", label: "ICPC" },
+  { href: "/contests", label: "Contests" },
   { href: "/guild", label: "Guild" },
   { href: "/mistakes", label: "Mistakes" },
 ];

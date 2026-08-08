@@ -564,6 +564,42 @@ export async function getPickerTopics(userId: number): Promise<PickerTopic[]> {
   );
 }
 
+// ---------- upcoming contests ----------
+
+export type UpcomingContest = {
+  id: number;
+  name: string;
+  url: string;
+  platform: string; // Codeforces, AtCoder, LeetCode… — display name from the worker
+  // Epoch milliseconds rather than a timestamp: the client counts down from
+  // this and schedules the pre-start notification, and arithmetic on a number
+  // can't be bent by anyone's timezone parsing.
+  starts_at_ms: number;
+  duration_s: number;
+};
+
+// Global, not per-user — a contest calendar is the same for everybody. The
+// worker mirrors every judge (worker/contests.py); the `starts_at > now()`
+// filter is what keeps a stale mirror from showing a started contest as
+// upcoming.
+export async function getUpcomingContests(
+  limit: number | null = 5,
+): Promise<UpcomingContest[]> {
+  // The limit is spliced rather than bound because an unused $1 is a hard
+  // error in Postgres ("could not determine data type"), not an ignored
+  // argument — so the full-board call can't just pass null through.
+  return q<UpcomingContest>(
+    `select id, name, url, platform,
+            (extract(epoch from starts_at) * 1000)::int8 as starts_at_ms,
+            duration_s
+     from upcoming_contests
+     where starts_at > now()
+     order by starts_at
+     ${limit === null ? "" : "limit $1"}`,
+    limit === null ? [] : [limit],
+  );
+}
+
 // ---------- attempts ----------
 
 export type OpenAttempt = {

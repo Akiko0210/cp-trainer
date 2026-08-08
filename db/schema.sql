@@ -197,6 +197,28 @@ create table if not exists topic_mastery (
   primary key (user_id, topic_id)
 );
 
+-- Upcoming-contest mirror (worker/contests.py). Global, not per-user: a
+-- contest calendar is the same for everybody. One fetcher per source (CF's
+-- official API, AtCoder via kenkoooo, CodeChef's public JSON, clist.by as an
+-- opt-in umbrella for judges that permit nothing direct); a refresh replaces
+-- only that source's rows, so a moved or cancelled contest simply stops being
+-- listed and one judge failing never blanks the others. Readers additionally
+-- filter `starts_at > now()` so a stale mirror never shows a started contest
+-- as upcoming. Kattis has no contest feed (no API).
+create table if not exists upcoming_contests (
+  id          bigserial primary key,
+  source      text not null default 'cf', -- which fetcher owns the row
+  external_id text not null,              -- the judge's own contest id/code
+  name        text not null,
+  url         text not null,
+  starts_at   timestamptz not null,
+  duration_s  int not null,
+  platform    text not null,              -- display name: Codeforces, AtCoder, LeetCode…
+  fetched_at  timestamptz not null default now(),
+  unique (source, external_id)
+);
+create index if not exists upcoming_contests_starts on upcoming_contests (starts_at);
+
 create table if not exists sync_state (
   user_id                   bigint not null references users(id),
   source                    text not null,

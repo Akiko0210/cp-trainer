@@ -3,8 +3,9 @@ import { redirect } from "next/navigation";
 import CategoryGrid from "@/components/CategoryGrid";
 import GuildMiniBoard from "@/components/GuildMiniBoard";
 import Onboarding from "@/components/Onboarding";
-import StreakHero from "@/components/StreakHero";
+import StreakBar from "@/components/StreakBar";
 import SyncBanner from "@/components/SyncBanner";
+import UpcomingContests from "@/components/UpcomingContests";
 import { Card, Empty, Label, StatTile, TrendMark, VerdictBadge } from "@/components/ui";
 import { workerConfigured } from "@/lib/env";
 import { getMyGuild, getStandings } from "@/lib/guild-queries";
@@ -18,6 +19,7 @@ import {
   getRecentSubmissions,
   getStreak,
   getSyncState,
+  getUpcomingContests,
   recommend,
 } from "@/lib/queries";
 import { daysAgo, masteryStep } from "@/lib/taxonomy";
@@ -44,18 +46,29 @@ export default async function Dashboard() {
   if (!user) redirect("/signin");
   if (!user.cf_handle) return <Onboarding syncsOnLink={workerConfigured()} />;
 
-  const [sync, categories, overview, review, recent, activity, rec, streak, guild] =
-    await Promise.all([
-      getSyncState(user.id),
-      getCategories(user.id),
-      getOverview(user.id),
-      getNeedsReview(user.id),
-      getRecentSubmissions(user.id, 8),
-      getActivityStrip(user.id),
-      recommend(user.id, null).catch(() => null),
-      getStreak(user.id),
-      getMyGuild(user.id),
-    ]);
+  const [
+    sync,
+    categories,
+    overview,
+    review,
+    recent,
+    activity,
+    rec,
+    streak,
+    guild,
+    contests,
+  ] = await Promise.all([
+    getSyncState(user.id),
+    getCategories(user.id),
+    getOverview(user.id),
+    getNeedsReview(user.id),
+    getRecentSubmissions(user.id, 8),
+    getActivityStrip(user.id),
+    recommend(user.id, null).catch(() => null),
+    getStreak(user.id),
+    getMyGuild(user.id),
+    getUpcomingContests(),
+  ]);
 
   // The guild board is on the dashboard, not only on /guild: standings you have
   // to navigate to are standings you stop looking at.
@@ -77,7 +90,7 @@ export default async function Dashboard() {
         </div>
       )}
 
-      {hasData && <StreakHero streak={streak} activity={activity} />}
+      {hasData && <StreakBar streak={streak} activity={activity} />}
 
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
@@ -196,6 +209,11 @@ export default async function Dashboard() {
               sub={`${overview.solved_total} all time`}
             />
           </div>
+
+          <UpcomingContests
+            contests={contests}
+            workerConfigured={workerConfigured()}
+          />
 
           <Card>
             <Label>Needs review</Label>

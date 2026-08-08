@@ -5,7 +5,8 @@ does) plus the analytics recompute. Endpoints are called by the Next app;
 a background loop keeps every user's mirror fresh on an interval.
 
 Run:  uv run uvicorn app:app --port 8787
-Env:  DATABASE_URL, SYNC_INTERVAL_MINUTES (default 30), WORKER_PORT,
+Env:  DATABASE_URL, SYNC_INTERVAL_MINUTES (default 30),
+      CONTEST_REFRESH_MINUTES (default 360), WORKER_PORT,
       WORKER_TOKEN (shared with the Next app; required outside localhost)
 """
 
@@ -21,6 +22,7 @@ from fastapi.responses import StreamingResponse
 
 import broadcast
 import cf_api
+import contests
 import db
 import seed_cf
 import seed_icpc
@@ -31,6 +33,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s
 log = logging.getLogger("app")
 
 SYNC_INTERVAL_MINUTES = int(os.environ.get("SYNC_INTERVAL_MINUTES", "30"))
+# The contest calendar changes a few times a week; the browser counts down from
+# the stored start time, so refreshing this often buys nothing.
+CONTEST_REFRESH_MINUTES = int(os.environ.get("CONTEST_REFRESH_MINUTES", "360"))
 
 # Serialize sync runs per user so a manual sync and the scheduler don't race.
 _user_locks: dict[int, asyncio.Lock] = {}
@@ -64,11 +69,29 @@ async def _scheduler() -> None:
             log.exception("scheduler pass failed")
 
 
+async def _contest_loop() -> None:
+    """Keep the upcoming-contest mirror fresh (worker/contests.py).
+
+    Refreshes immediately at boot — unlike the sync scheduler, which sleeps
+    first, because a fresh install should show the calendar on the first page
+    load rather than after the first interval.
+    """
+    while True:
+        try:
+            with db.connect() as conn:
+                n = await contests.refresh(conn)
+            log.info("contest refresh: %s upcoming", n)
+        except Exception:
+            log.exception("contest refresh failed")
+        await asyncio.sleep(CONTEST_REFRESH_MINUTES * 60)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
-    task = asyncio.create_task(_scheduler())
+    tasks = [asyncio.create_task(_scheduler()), asyncio.create_task(_contest_loop())]
     yield
-    task.cancel()
+    for task in tasks:
+        task.cancel()
     broadcast.broadcaster.shutdown()
 
 

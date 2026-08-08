@@ -24,20 +24,34 @@ import { useSyncExternalStore } from "react";
   which is what picks up the viewer's own.
 */
 
-const UTC_FALLBACK = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "short",
-  timeStyle: "medium",
-  timeZone: "UTC",
-});
+/*
+  Three shapes, because the same instant needs different amounts of context:
+  `full` for a one-off fact (last sync), `daytime` for a list where each row
+  stands alone (the contest card), `time` where a heading already said which
+  day it is (the grouped contest board).
+*/
+type Mode = "full" | "daytime" | "time";
+
+const OPTIONS: Record<Mode, Intl.DateTimeFormatOptions> = {
+  full: { dateStyle: "short", timeStyle: "medium" },
+  daytime: { weekday: "short", hour: "numeric", minute: "2-digit" },
+  time: { hour: "numeric", minute: "2-digit" },
+};
+
+const UTC_FALLBACK: Record<Mode, Intl.DateTimeFormat> = {
+  full: new Intl.DateTimeFormat("en-US", { ...OPTIONS.full, timeZone: "UTC" }),
+  daytime: new Intl.DateTimeFormat("en-US", { ...OPTIONS.daytime, timeZone: "UTC" }),
+  time: new Intl.DateTimeFormat("en-US", { ...OPTIONS.time, timeZone: "UTC" }),
+};
 
 // The zone cannot change under a mounted page, so there is nothing to notify.
 const subscribe = () => () => {};
 
-export default function LocalTime({ iso }: { iso: string }) {
+export default function LocalTime({ iso, mode = "full" }: { iso: string; mode?: Mode }) {
   const label = useSyncExternalStore(
     subscribe,
-    () => new Date(iso).toLocaleString(),
-    () => `${UTC_FALLBACK.format(new Date(iso))} UTC`,
+    () => new Date(iso).toLocaleString(undefined, OPTIONS[mode]),
+    () => `${UTC_FALLBACK[mode].format(new Date(iso))} UTC`,
   );
 
   return <time dateTime={iso}>{label}</time>;

@@ -13,6 +13,14 @@ expensive to rediscover.
 — not a "live" dot, not a success state. The brand accent is indigo-violet, and
 streak/guild accents live in the 215°–330° band for the same reason.
 
+There is exactly one exception, and it is scoped: **judge logos** carry their
+real brand colour, which means Codeforces' red bar and LeetCode's orange
+(`--judge-*` in globals.css, sampled from each judge's own favicon). A judge is
+an identity, not a verdict, and it is only safe because no contest surface
+renders an AC/WA/TLE badge — the mark never sits beside a verdict it could be
+mistaken for. Don't extend those tokens to anywhere a verdict can also appear,
+and don't "fix" the red bar.
+
 **Codeforces traffic.** Only `worker/` talks to the CF API in bulk, through the
 single lock in `cf_api.py` (≥2.2s between calls). Two processes syncing at once
 will exceed what CF allows from one address. The Next app never bulk-fetches.

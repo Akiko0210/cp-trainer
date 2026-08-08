@@ -156,7 +156,15 @@ async def fetch_clist() -> list[Row]:
     username = os.environ.get("CLIST_USERNAME", "").strip()
     api_key = os.environ.get("CLIST_API_KEY", "").strip()
     if not username or not api_key:
-        return []  # opt-in; unconfigured is the normal case, not an error
+        # Unconfigured is a normal state, not an error — but say so once per
+        # refresh at INFO. "Why is there no LeetCode?" is otherwise invisible:
+        # the calendar just quietly lacks a judge, with nothing in the log to
+        # explain which one or why.
+        log.info(
+            "clist not configured (CLIST_USERNAME/CLIST_API_KEY unset) — "
+            "LeetCode and other umbrella-only judges will not appear"
+        )
+        return []
     wanted = {
         h.strip().lower()
         for h in os.environ.get("CLIST_RESOURCES", "leetcode.com,usaco.org").split(",")

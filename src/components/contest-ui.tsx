@@ -10,94 +10,138 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 */
 
 // ---------------------------------------------------------------------------
-// Platform marks
+// Judge marks — each judge's own logo, drawn as vectors.
 //
-// A 2-letter monogram would have been less work, but a shape is read without
-// being parsed, which is the whole point of putting a judge's identity in
-// 18px of gutter instead of in the row's text.
+// Vectors rather than the judges' favicons, which is the obvious alternative:
+// Codeforces only publishes a 16×16 .ico and AtCoder's is its full crest
+// *including the wordmark*, so both are a blurred smudge at this size, and
+// hotlinking them would send every viewer's IP to four judges on every page
+// load. The colours are not guessed — they are sampled from those same
+// favicons (see db/../globals.css for the tokens).
 //
-// The tints are deliberately NOT the judges' brand colours. Codeforces red,
-// LeetCode orange and HackerRank green would collide head-on with the one
-// colour rule this app has — green/red/amber mean AC/WA/TLE and nothing else
-// (AGENTS.md) — and a red badge beside a red verdict badge reads as a verdict.
-// So each judge gets the nearest hue from the category palette instead, which
-// is already tuned for both themes.
+// AtCoder is the one honest compromise. Its logo is a crowned crest with two
+// unicorns and a globe; nothing survives 20px. It reduces to the crest's
+// silhouette and the "AC" monogram that sits inside the real one.
+//
+// These marks use real brand colour, which means Codeforces' red and
+// LeetCode's orange — the one sanctioned exception to the verdict-colour
+// rule, safe only because contest surfaces render no verdict badges. The
+// reasoning is recorded next to the tokens in globals.css and in AGENTS.md.
 // ---------------------------------------------------------------------------
 
-type Mark = { color: string; glyph: React.ReactNode };
-
-const BARS = (
-  <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden fill="currentColor">
-    <rect x="0" y="4" width="3" height="8" rx="1" />
-    <rect x="4.5" y="1.5" width="3" height="10.5" rx="1" />
-    <rect x="9" y="6" width="3" height="6" rx="1" />
+const CODEFORCES = (
+  // Three bars, bottom-aligned: gold short, blue tall, red shortest.
+  <svg viewBox="0 0 24 24" width="100%" height="100%" aria-hidden>
+    <rect x="2" y="8.5" width="5.6" height="13" rx="1.7" fill="var(--judge-cf-yellow)" />
+    <rect x="9.2" y="4" width="5.6" height="17.5" rx="1.7" fill="var(--judge-cf-blue)" />
+    <rect x="16.4" y="10.5" width="5.6" height="11" rx="1.7" fill="var(--judge-cf-red)" />
   </svg>
 );
 
-const HAT = (
-  <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden fill="currentColor">
-    <path d="M2.4 5.6a2 2 0 1 1 1.3-3.4 2.2 2.2 0 0 1 4.6 0 2 2 0 1 1 1.3 3.4v.6H2.4v-.6Z" />
-    <rect x="2.4" y="7.2" width="7.2" height="2.6" rx="0.8" />
-  </svg>
-);
-
-const CHEVRON = (
+const LEETCODE = (
+  // The angular "C": ink chevron, orange arms top and bottom, grey crossbar.
   <svg
-    viewBox="0 0 12 12"
-    width="11"
-    height="11"
+    viewBox="0 0 24 24"
+    width="100%"
+    height="100%"
     aria-hidden
     fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
+    strokeWidth="2.7"
     strokeLinecap="round"
     strokeLinejoin="round"
   >
-    <path d="M6.6 1.8 3 5.9l3.6 4.3" />
-    <path d="M9.2 10.2H5.4" />
+    <path
+      d="M14 3.2 6.2 11a2.4 2.4 0 0 0 0 3.4l7.8 6.4"
+      stroke="var(--judge-ink)"
+    />
+    <path d="M14 3.2 18.1 7.1" stroke="var(--judge-lc-orange)" />
+    <path d="M14 20.8 18.1 17" stroke="var(--judge-lc-orange)" />
+    <path d="M11.6 12.7h8.6" stroke="var(--judge-lc-gray)" />
   </svg>
 );
 
-function letter(ch: string) {
-  return <span className="text-[10px] font-bold leading-none">{ch}</span>;
+const CODECHEF = (
+  // The toque: three puffs over a band.
+  <svg viewBox="0 0 24 24" width="100%" height="100%" aria-hidden fill="var(--judge-cc-brown)">
+    <path d="M5.4 13.6a3.5 3.5 0 1 1 2.5-5.9 3.9 3.9 0 0 1 7.4 0 3.5 3.5 0 1 1 2.5 5.9v1.2H5.4v-1.2Z" />
+    <rect x="5.4" y="16.2" width="12.6" height="3.6" rx="1.1" />
+  </svg>
+);
+
+const ATCODER = (
+  // Crest silhouette + the monogram from inside the real one.
+  <svg
+    viewBox="0 0 24 24"
+    width="100%"
+    height="100%"
+    aria-hidden
+    fill="none"
+    stroke="var(--judge-ink)"
+    strokeWidth="1.7"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 2.6 20 5.3v6.4c0 4.5-3.3 7.5-8 9.4-4.7-1.9-8-4.9-8-9.4V5.3Z" />
+    <path d="M9.3 15.6 12 8.4l2.7 7.2" />
+    <path d="M10.4 13.2h3.2" />
+  </svg>
+);
+
+/* Judges with no drawn logo get a tinted initial. It carries a chip behind it
+   on purpose: a bare glyph beside four full-colour logos reads as one that
+   failed to load, where a deliberate tile reads as a judge we simply haven't
+   drawn yet. Scales with `size` so it holds its weight at any of them. */
+function Initial({ ch, color, size }: { ch: string; color: string; size: number }) {
+  return (
+    <span
+      className="grid size-full place-items-center rounded-[6px] font-bold leading-none"
+      style={{
+        color,
+        backgroundColor: `color-mix(in oklab, ${color} 16%, transparent)`,
+        fontSize: Math.round(size * 0.5),
+      }}
+    >
+      {ch}
+    </span>
+  );
 }
 
-const MARKS: Record<string, Mark> = {
-  codeforces: { color: "var(--cat-math)", glyph: BARS },
-  atcoder: { color: "var(--cat-fundamentals)", glyph: letter("A") },
-  codechef: { color: "var(--cat-strings)", glyph: HAT },
-  leetcode: { color: "var(--cat-dp)", glyph: CHEVRON },
-  usaco: { color: "var(--cat-geometry)", glyph: letter("U") },
-  topcoder: { color: "var(--cat-graphs)", glyph: letter("T") },
-  hackerrank: { color: "var(--cat-flow)", glyph: letter("H") },
-  yukicoder: { color: "var(--cat-fundamentals)", glyph: letter("Y") },
+/** Judges with a drawn logo; anything else falls back to a tinted initial. */
+const MARKS: Record<string, React.ReactNode> = {
+  codeforces: CODEFORCES,
+  atcoder: ATCODER,
+  codechef: CODECHEF,
+  leetcode: LEETCODE,
+};
+
+const FALLBACK_TINT: Record<string, string> = {
+  usaco: "var(--cat-geometry)",
+  topcoder: "var(--cat-graphs)",
+  hackerrank: "var(--cat-flow)",
+  yukicoder: "var(--cat-fundamentals)",
 };
 
 export function PlatformMark({
   platform,
-  size = 20,
+  size = 22,
 }: {
   platform: string;
   size?: number;
 }) {
-  const mark = MARKS[platform.toLowerCase()] ?? {
-    color: "var(--cat-fundamentals)",
-    glyph: letter(platform.slice(0, 1).toUpperCase()),
-  };
+  const key = platform.toLowerCase();
+  const logo = MARKS[key];
+  const tint = FALLBACK_TINT[key] ?? "var(--cat-fundamentals)";
   return (
     <span
       title={platform}
       aria-label={platform}
       role="img"
-      className="grid shrink-0 place-items-center rounded-[6px]"
-      style={{
-        width: size,
-        height: size,
-        color: mark.color,
-        backgroundColor: `color-mix(in oklab, ${mark.color} 15%, transparent)`,
-      }}
+      className="grid shrink-0 place-items-center"
+      style={{ width: size, height: size }}
     >
-      {mark.glyph}
+      {logo ?? (
+        <Initial ch={platform.slice(0, 1).toUpperCase()} color={tint} size={size} />
+      )}
     </span>
   );
 }

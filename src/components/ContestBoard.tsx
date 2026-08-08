@@ -104,7 +104,7 @@ export default function ContestBoard({
             active={platforms.has(platform)}
             onClick={() => togglePlatform(platform)}
           >
-            <PlatformMark platform={platform} size={14} />
+            <PlatformMark platform={platform} size={16} />
             {platform}
             <span className="num opacity-60">{n}</span>
           </Chip>

@@ -268,8 +268,16 @@ what each site permits:
   `CLIST_USERNAME` + `CLIST_API_KEY` (free account → API key), and optionally
   `CLIST_RESOURCES` (comma-separated hosts, default
   `leetcode.com,usaco.org`). This is how LeetCode arrives — its robots.txt
-  forbids `/graphql`, so it is never fetched directly. Hosts already covered
-  natively are filtered out so nothing appears twice.
+  forbids `/graphql`, `/api/` and `/*/api`, and its pages answer 403 to
+  anything that isn't a browser, so there is no direct route to take. Hosts
+  already covered natively are filtered out so nothing appears twice.
+  **Without these two variables set, no LeetCode contests appear at all** —
+  the worker logs one line per refresh saying so.
+
+Each judge is shown with its own logo, drawn as a vector rather than
+hotlinked, so no page load sends the viewer's IP out to four judges. The
+colours are sampled from each judge's real favicon; AtCoder's crowned crest is
+reduced to its shield and monogram, because nothing else in it survives 20px.
 
 Each source replaces only its own rows on refresh, so a rescheduled round
 moves, a cancelled one disappears, and one judge's outage never blanks the

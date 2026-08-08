@@ -75,6 +75,25 @@
   --streak-b: #c026d3;
   --streak-ink: #ffffff;
   --streak-dim: #cbd2e0;
+
+  /* Judge brand marks (components/contest-ui.tsx). Sampled from each judge's
+     own favicon rather than guessed, so the logo is the real one.
+
+     These are the ONE sanctioned exception to the verdict-colour rule, and
+     the exception is scoped deliberately: Codeforces' logo is literally a red
+     bar and LeetCode's is orange, and a judge is not a verdict. It is safe
+     here because no contest surface renders an AC/WA/TLE badge — the mark
+     never appears beside a verdict it could be mistaken for. Do not reach for
+     these tokens anywhere a verdict can also appear. */
+  --judge-cf-yellow: #f9d14c;
+  --judge-cf-blue: #1c98d3;
+  --judge-cf-red: #bf1c24;
+  --judge-lc-orange: #f89f1b;
+  --judge-lc-gray: #b4b2b1;
+  --judge-cc-brown: #583722;
+  /* AtCoder's crest and LeetCode's chevron are near-black; they invert with
+     the theme the way a wordmark does, rather than disappearing. */
+  --judge-ink: #14203a;
 }
 
 .dark {
@@ -134,6 +153,18 @@
   --streak-b: #e055f0;
   --streak-ink: #ffffff;
   --streak-dim: #2a3242;
+
+  /* Judge marks, lifted just enough to hold on the dark card. Codeforces'
+     yellow already carries; its blue and red are brightened a step, and
+     CodeChef's #583722 had to go — a near-black brown on a near-black card
+     is an empty square. */
+  --judge-cf-yellow: #f9d14c;
+  --judge-cf-blue: #2ba5de;
+  --judge-cf-red: #d8323a;
+  --judge-lc-orange: #f8a72e;
+  --judge-lc-gray: #b4b2b1;
+  --judge-cc-brown: #b98a5f;
+  --judge-ink: #e6e9ef;
 }
 
 @theme inline {

@@ -6,8 +6,9 @@ a background loop keeps every user's mirror fresh on an interval.
 
 Run:  uv run uvicorn app:app --port 8787
 Env:  DATABASE_URL, SYNC_INTERVAL_MINUTES (default 30),
-      CONTEST_REFRESH_MINUTES (default 360), WORKER_PORT,
-      WORKER_TOKEN (shared with the Next app; required outside localhost)
+      CONTEST_REFRESH_MINUTES (default 360), ARENA_POLL_SECONDS (default 10),
+      WORKER_PORT, WORKER_TOKEN (shared with the Next app; required outside
+      localhost)
 """
 
 import asyncio
@@ -20,6 +21,7 @@ import secrets
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
 
+import arena
 import broadcast
 import cf_api
 import contests
@@ -89,9 +91,14 @@ async def _contest_loop() -> None:
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
     tasks = [asyncio.create_task(_scheduler()), asyncio.create_task(_contest_loop())]
+    # One boot-time poke so a duel or contest that was live when the worker
+    # restarted resumes detection; if nothing is active the loop parks itself
+    # after a single cheap query.
+    arena.poke()
     yield
     for task in tasks:
         task.cancel()
+    arena.shutdown()
     broadcast.broadcaster.shutdown()
 
 
@@ -183,6 +190,14 @@ async def sync_endpoint(user_id: int, background: BackgroundTasks, quick: bool =
         return result
     background.add_task(_sync_user_safe, user_id, False)
     return {"started": True}
+
+
+@app.post("/arena/poke", dependencies=[Depends(require_token)])
+async def arena_poke():
+    """Wake the arena loop (worker/arena.py). The Next app calls this when a
+    duel goes active or a guild contest starts; the loop parks itself again
+    once nothing active remains, so poking an idle worker is nearly free."""
+    return {"started": arena.poke()}
 
 
 @app.post("/validate-handle/{handle}", dependencies=[Depends(require_token)])

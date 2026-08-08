@@ -3,6 +3,8 @@ import GuildDoor from "./GuildDoor";
 import InviteCode from "./InviteCode";
 import LeaveGuild from "./LeaveGuild";
 import ChampionsGrid from "@/components/ChampionsGrid";
+import ContestPanel from "@/components/ContestPanel";
+import DuelPanel from "@/components/DuelPanel";
 import Leaderboard from "@/components/Leaderboard";
 import { Crest } from "@/components/guild-ui";
 import { getSessionUser } from "@/lib/auth";
@@ -85,6 +87,22 @@ export default async function GuildPage() {
       </div>
       <div className="mb-8">
         <ChampionsGrid meId={user.id} />
+      </div>
+
+      {/* ---- the arena: duels + custom contests ---- */}
+      <div className="mb-3">
+        <h2 className="font-display text-[22px] font-semibold tracking-tight">
+          Arena
+        </h2>
+        <p className="mt-1 text-sm text-muted">
+          Races, not ratings: challenge a guildmate to a duel, or throw a
+          custom contest of random unseen problems. Nothing here touches
+          anyone&apos;s scores.
+        </p>
+      </div>
+      <div className="mb-8 grid grid-cols-1 items-start gap-3 lg:grid-cols-2">
+        <DuelPanel meId={user.id} />
+        <ContestPanel meId={user.id} />
       </div>
 
       {/* ---- full standings ---- */}

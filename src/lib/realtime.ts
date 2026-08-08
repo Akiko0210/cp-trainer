@@ -32,7 +32,12 @@ export type StandingsEvent =
       estimate: number | null;
     }
   | { type: "solve"; guild_id: number; user_id: number; problem_id: number | null }
-  | { type: "roster"; guild_id: number; user_id: number };
+  | { type: "roster"; guild_id: number; user_id: number }
+  // The arena (db/migrations/005_arena.sql): duel and guild-contest state
+  // changes ride the same channel, so every consumer's "something moved,
+  // refetch" logic covers them with no new plumbing.
+  | { type: "duel"; guild_id: number; duel_id: number; status: string }
+  | { type: "contest"; guild_id: number; contest_id: number; status: string };
 
 type Subscriber = (event: StandingsEvent) => void;
 

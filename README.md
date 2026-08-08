@@ -189,6 +189,34 @@ public Codeforces handles chosen near this account's own level, so the champions
 grid shows a contest rather than one grandmaster sweeping all eight areas. The
 file says how to remove them.
 
+### The arena: duels and custom contests
+
+Two ways a guild races, both deliberately rating-free — nothing in the arena
+writes to mastery or the ability fit, so losing a duel costs pride and only
+pride.
+
+A **duel** is a challenge to one guildmate: the invitation holds for five
+minutes, and accepting it starts a 45-minute race on one random problem —
+rated near the pair's average, drawn from the mirrored CF problemset, and
+untouched by either player (any past submission counts as touched; a problem
+half-solved last month is a head start). First accepted solution wins, on the
+judge's own clock. A **guild contest** is the same idea for the whole roster:
+anyone opens a lobby naming a problem count, a rating band and a duration;
+members join; the creator starts it, which is when the problems are chosen —
+against the final field, so nobody has seen theirs. The board ranks by solves,
+ties broken by summed solve time, with no wrong-answer penalty: a fun contest
+that punishes trying is neither.
+
+Solving happens on Codeforces as usual. Detection is the worker's arena loop
+([worker/arena.py](worker/arena.py)): while something is live it polls each
+participant's newest submissions through the same rate-limited queue as every
+other CF call, writes them into the ordinary mirror, and settles winners in
+SQL. The loop is *dormant unless something is live* — the app pokes it when a
+race starts, it parks itself when the last one ends — because an always-on
+poll would keep a scale-to-zero database awake around the clock for a feature
+nobody is using at 4am. No worker, no arena: the UI says so rather than
+offering a race nobody can win.
+
 ## Streak, and the menu bar readout
 
 The dashboard opens with the streak because the motivating moment isn't "you

@@ -1,3 +1,5 @@
+import { unstable_cache } from "next/cache";
+import { cache } from "react";
 import { getSessionUser } from "./auth";
 import { one, q } from "./db";
 import { daysAgo } from "./taxonomy";
@@ -24,11 +26,11 @@ export type User = {
  * Every query in this file already scopes by user_id, so nothing downstream
  * changes.
  */
-export async function getCurrentUser(): Promise<User | null> {
+export const getCurrentUser = cache(async (): Promise<User | null> => {
   const session = await getSessionUser();
   if (!session) return null;
   return one<User>("select * from users where id = $1", [session.id]);
-}
+});
 
 // ---------- categories (the dashboard hero) ----------
 
@@ -582,22 +584,40 @@ export type UpcomingContest = {
 // worker mirrors every judge (worker/contests.py); the `starts_at > now()`
 // filter is what keeps a stale mirror from showing a started contest as
 // upcoming.
-export async function getUpcomingContests(
-  limit: number | null = 5,
-): Promise<UpcomingContest[]> {
-  // The limit is spliced rather than bound because an unused $1 is a hard
-  // error in Postgres ("could not determine data type"), not an ignored
-  // argument — so the full-board call can't just pass null through.
-  return q<UpcomingContest>(
-    `select id, name, url, platform,
+/*
+  Cached across requests, not just deduplicated within one: the mirror is
+  global (every user sees the same calendar) and the worker only rewrites it
+  every CONTEST_REFRESH_MINUTES (default 6h), so five minutes of staleness is
+  invisible while every dashboard load skips a query. The countdown itself is
+  computed client-side from starts_at_ms, so caching never skews it.
+
+  `unstable_cache` rather than `use cache` because the directive requires
+  opting the whole app into cacheComponents. The rows must stay
+  JSON-serialisable — timestamps leave as epoch ms, not Date.
+*/
+const cachedUpcomingContests = unstable_cache(
+  async (limit: number | null) =>
+    // The limit is spliced rather than bound because an unused $1 is a hard
+    // error in Postgres ("could not determine data type"), not an ignored
+    // argument — so the full-board call can't just pass null through.
+    q<UpcomingContest>(
+      `select id, name, url, platform,
             (extract(epoch from starts_at) * 1000)::int8 as starts_at_ms,
             duration_s
      from upcoming_contests
      where starts_at > now()
      order by starts_at
      ${limit === null ? "" : "limit $1"}`,
-    limit === null ? [] : [limit],
-  );
+      limit === null ? [] : [limit],
+    ),
+  ["upcoming-contests"],
+  { revalidate: 300 },
+);
+
+export async function getUpcomingContests(
+  limit: number | null = 5,
+): Promise<UpcomingContest[]> {
+  return cachedUpcomingContests(limit);
 }
 
 // ---------- attempts ----------

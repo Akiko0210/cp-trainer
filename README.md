@@ -241,7 +241,10 @@ replaces it.
 The worker mirrors each judge's contest calendar into a global
 `upcoming_contests` table (one fetch per source every
 `CONTEST_REFRESH_MINUTES`, default 6 hours — see
-[contests.py](worker/contests.py)); the app reads that table, never a judge.
+[contests.py](worker/contests.py)); the app reads that table, never a judge,
+and caches that read for five minutes — the calendar is the same for everyone
+and changes on the worker's schedule, so the dashboard doesn't pay a query
+per load for it.
 
 Two surfaces, one mirror. The **dashboard card** is the next five rounds in
 *your* timezone with a live countdown; **`/contests`** is the whole calendar,

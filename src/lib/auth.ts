@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { one, q } from "./db";
 
 /*
@@ -157,19 +158,26 @@ export async function destroySession() {
 /**
  * The signed-in user, or null. Every page and API route goes through this —
  * it replaces v1's `select * from users limit 1`.
+ *
+ * Memoised per request (React `cache`): the layout and the page both ask, and
+ * against a hosted Postgres each duplicate lookup is a full network round
+ * trip. The scope is a single render, so a session revoked mid-request is
+ * still gone on the next one.
  */
-export async function getSessionUser(): Promise<SessionUser | null> {
-  const jar = await cookies();
-  const token = jar.get(COOKIE)?.value;
-  if (!token) return null;
-  return one<SessionUser>(
-    `select u.id, u.github_login, u.display_name, u.avatar_url, u.cf_handle,
+export const getSessionUser = cache(
+  async (): Promise<SessionUser | null> => {
+    const jar = await cookies();
+    const token = jar.get(COOKIE)?.value;
+    if (!token) return null;
+    return one<SessionUser>(
+      `select u.id, u.github_login, u.display_name, u.avatar_url, u.cf_handle,
             u.cf_rating, u.cf_rank, u.ability_estimate
      from sessions s join users u on u.id = s.user_id
      where s.token = $1 and s.expires_at > now()`,
-    [token],
-  );
-}
+      [token],
+    );
+  },
+);
 
 /**
  * Mint a long-lived token for a headless client — today, the macOS menu bar

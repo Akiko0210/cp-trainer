@@ -193,7 +193,10 @@ file says how to remove them.
 
 Two ways a guild races, both deliberately rating-free — nothing in the arena
 writes to mastery or the ability fit, so losing a duel costs pride and only
-pride.
+pride. The machinery lives at `/guild/arena`; the guild page itself carries
+only a one-line strip that surfaces what can't wait — an incoming challenge
+(answerable in place) or a race already running — so the standings stay the
+page's subject.
 
 A **duel** is a challenge to one guildmate: the invitation holds for five
 minutes, and accepting it starts a 45-minute race on one random problem —

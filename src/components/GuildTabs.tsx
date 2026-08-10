@@ -8,13 +8,16 @@ import { usePathname } from "next/navigation";
 
   One page carrying the crest, the champions, the full standings, a duel form
   and a contest lobby is a page you scroll past rather than read. These are
-  four separate questions — who holds what, where does everyone stand, who am
+  four separate questions — where does everyone stand, who holds what, who am
   I racing, what's the club running — so they get four pages under one roof.
   The header above stays put; only the panel below it changes.
+
+  Standings takes the bare /guild URL because it is the question people open a
+  guild to answer; the rest are somewhere you go on purpose.
 */
 const TABS = [
-  { href: "/guild", label: "Overview" },
-  { href: "/guild/standings", label: "Standings" },
+  { href: "/guild", label: "Standings" },
+  { href: "/guild/champions", label: "Champions" },
   { href: "/guild/duels", label: "Duels" },
   { href: "/guild/contests", label: "Contests" },
 ] as const;

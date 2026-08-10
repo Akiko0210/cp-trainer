@@ -195,15 +195,19 @@ Two ways a guild races, both deliberately rating-free — nothing in the arena
 writes to mastery or the ability fit, so losing a duel costs pride and only
 pride. Duels and contests get a page each (`/guild/duels`, `/guild/contests`),
 because a duel form and a contest lobby side by side read as one cluttered
-control panel rather than two things you do. The guild's Overview keeps only a
-one-line strip that surfaces what can't wait — an incoming challenge
-(answerable in place) or a race already running.
+control panel rather than two things you do.
 
-The guild is four tabs under one header: **Overview** (who holds what, plus
-that strip), **Standings**, **Duels**, **Contests**. They live in a route
-group, so the header and tabs wrap all four without adding a path segment,
-and the invite page (`/guild/join/[code]`) stays outside it — it is shown to
-people who are not in the guild yet, and guild chrome would be a lie there.
+The guild is four tabs under one header: **Standings**, **Champions**,
+**Duels**, **Contests**. Standings takes the bare `/guild` URL — it is the
+question people open a guild to answer. They live in a route group, so the
+header and tabs wrap all four without adding a path segment, and the invite
+page (`/guild/join/[code]`) stays outside it — it is shown to people who are
+not in the guild yet, and guild chrome would be a lie there.
+
+A pending duel is therefore visible on the Duels tab and nowhere else: there
+is no cross-page banner announcing one. That is deliberate — the invitation
+already carries its own five-minute clock, and a challenge nobody opened
+simply expires.
 
 A **duel** is a challenge to one guildmate: the invitation holds for five
 minutes, and accepting it starts a 45-minute race on one random problem —

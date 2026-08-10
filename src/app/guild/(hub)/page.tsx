@@ -1,15 +1,18 @@
 import { redirect } from "next/navigation";
 import GuildDoor from "../GuildDoor";
 import LeaveGuild from "../LeaveGuild";
-import ArenaStrip from "@/components/ArenaStrip";
-import ChampionsGrid from "@/components/ChampionsGrid";
+import Leaderboard from "@/components/Leaderboard";
 import { getSessionUser } from "@/lib/auth";
-import { getMyGuild } from "@/lib/guild-queries";
+import { getGuildActivity, getMyGuild, getStandings } from "@/lib/guild-queries";
 
 export const dynamic = "force-dynamic";
 
-/** Overview: who holds what, plus anything live in the arena right now. */
-export default async function GuildOverviewPage() {
+/**
+ * The guild's default view: where everyone stands, and what they've been
+ * solving. This is the question people open a guild to answer, so it gets the
+ * bare /guild URL rather than a tab they have to find.
+ */
+export default async function GuildStandingsPage() {
   const user = await getSessionUser();
   if (!user) redirect("/signin");
 
@@ -19,21 +22,31 @@ export default async function GuildOverviewPage() {
   // chrome — the layout above bows out when there's no guild.
   if (!guild) return <GuildDoor />;
 
+  const [standings, activity] = await Promise.all([
+    getStandings(guild.id, "elo"),
+    getGuildActivity(guild.id, 12),
+  ]);
+
+  const solved30 = standings.reduce((n, s) => n + s.solved_30d, 0);
+  const bestStreak = standings.reduce((n, s) => Math.max(n, s.streak), 0);
+
   return (
     <div>
-      {/* Live arena state, one line unless something is actually happening. */}
-      <ArenaStrip meId={user.id} />
-
       <div className="mb-3">
         <h2 className="font-display text-[22px] font-semibold tracking-tight">
-          Who holds what
+          Standings
         </h2>
         <p className="mt-1 text-sm text-muted">
-          Strongest guildmate in each area, by fitted estimate — so a title is
-          lost to someone improving, not to the holder taking a week off.
+          Ability is the calibrated Rasch estimate, which prices what you fail as
+          well as what you clear — grinding easy problems can&apos;t move it.
+        </p>
+        <p className="num mt-2 text-xs text-muted">
+          {solved30} solved in 30d
+          <span className="font-sans"> · best streak </span>
+          {bestStreak}
         </p>
       </div>
-      <ChampionsGrid meId={user.id} />
+      <Leaderboard meId={user.id} initial={{ standings, activity }} />
 
       <div className="mt-10 border-t border-line pt-4">
         <LeaveGuild

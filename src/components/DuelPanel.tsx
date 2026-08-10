@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ActionButton, fmtClock, useNow } from "./arena-ui";
 import { useGuildLive } from "./GuildLive";
 import { shortName } from "./guild-ui";
-import { Card, Label } from "./ui";
+import { Card } from "./ui";
 import type { Duel } from "@/lib/arena-queries";
 
 /*
@@ -120,7 +120,6 @@ export default function DuelPanel({ meId }: { meId: number }) {
   if (!state) {
     return (
       <Card>
-        <Label>Duels</Label>
         <p className="text-sm text-muted">Loading…</p>
       </Card>
     );
@@ -135,8 +134,6 @@ export default function DuelPanel({ meId }: { meId: number }) {
 
   return (
     <Card>
-      <Label>Duels</Label>
-
       {!state.detectable && (
         <p className="mb-3 text-sm text-muted">
           Duels need the sync worker — solves are detected from the Codeforces
@@ -147,11 +144,8 @@ export default function DuelPanel({ meId }: { meId: number }) {
       {/* ---- no duel: pick a victim ---- */}
       {!duel && (
         <div>
-          <p className="text-sm text-muted">
-            Same unseen problem for both of you, near your average rating.
-            First accepted solution wins. Nothing but pride at stake.
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          {/* The rules live in the page's subheader now, not here. */}
+          <div className="flex flex-wrap items-center gap-2">
             <select
               value={opponent}
               onChange={(e) => setOpponent(e.target.value)}

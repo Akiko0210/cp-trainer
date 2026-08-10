@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ActionButton, fmtClock, fmtDur, slotLetter, useNow } from "./arena-ui";
 import { useGuildLive } from "./GuildLive";
 import { Avatar, shortName } from "./guild-ui";
-import { Card, Label } from "./ui";
+import { Card } from "./ui";
 import type { GuildContest } from "@/lib/arena-queries";
 
 /*
@@ -103,7 +103,6 @@ export default function ContestPanel({ meId }: { meId: number }) {
   if (!state) {
     return (
       <Card>
-        <Label>Guild contests</Label>
         <p className="text-sm text-muted">Loading…</p>
       </Card>
     );
@@ -114,8 +113,6 @@ export default function ContestPanel({ meId }: { meId: number }) {
 
   return (
     <Card>
-      <Label>Guild contests</Label>
-
       {!state.detectable && (
         <p className="mb-3 text-sm text-muted">
           Contests need the sync worker — solves are detected from the
@@ -126,11 +123,8 @@ export default function ContestPanel({ meId }: { meId: number }) {
       {/* ---- nothing open: the creator form ---- */}
       {!open && (
         <div>
-          <p className="text-sm text-muted">
-            Random unseen Codeforces problems in a band you choose, one clock
-            for everyone. Most solves wins; ties go to the faster total.
-          </p>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+          {/* The rules live in the page's subheader now, not here. */}
+          <div className="flex flex-wrap items-center gap-2 text-sm">
             <select
               value={count}
               onChange={(e) => setCount(Number(e.target.value))}

@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { newInviteCode } from "./auth";
 import { one, q } from "./db";
 
@@ -54,13 +55,20 @@ const guildSelect = (where: string) => `
            as my_role
   from guilds g where ${where}`;
 
-/** The viewer's guild, or null if they haven't joined one. */
-export async function getMyGuild(userId: number): Promise<Guild | null> {
-  return one<Guild>(
-    guildSelect("g.id = (select guild_id from users where id = $1)"),
-    [userId],
-  );
-}
+/**
+ * The viewer's guild, or null if they haven't joined one.
+ *
+ * Memoised per request: the root layout, the guild hub layout and the page
+ * inside it all ask, and against a hosted Postgres each repeat is a network
+ * round trip for an answer that cannot change mid-render.
+ */
+export const getMyGuild = cache(
+  async (userId: number): Promise<Guild | null> =>
+    one<Guild>(
+      guildSelect("g.id = (select guild_id from users where id = $1)"),
+      [userId],
+    ),
+);
 
 /** Used by the invite-link page: show what you're about to join. */
 export async function getGuildByCode(

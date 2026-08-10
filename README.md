@@ -193,10 +193,17 @@ file says how to remove them.
 
 Two ways a guild races, both deliberately rating-free — nothing in the arena
 writes to mastery or the ability fit, so losing a duel costs pride and only
-pride. The machinery lives at `/guild/arena`; the guild page itself carries
-only a one-line strip that surfaces what can't wait — an incoming challenge
-(answerable in place) or a race already running — so the standings stay the
-page's subject.
+pride. Duels and contests get a page each (`/guild/duels`, `/guild/contests`),
+because a duel form and a contest lobby side by side read as one cluttered
+control panel rather than two things you do. The guild's Overview keeps only a
+one-line strip that surfaces what can't wait — an incoming challenge
+(answerable in place) or a race already running.
+
+The guild is four tabs under one header: **Overview** (who holds what, plus
+that strip), **Standings**, **Duels**, **Contests**. They live in a route
+group, so the header and tabs wrap all four without adding a path segment,
+and the invite page (`/guild/join/[code]`) stays outside it — it is shown to
+people who are not in the guild yet, and guild chrome would be a lie there.
 
 A **duel** is a challenge to one guildmate: the invitation holds for five
 minutes, and accepting it starts a 45-minute race on one random problem —

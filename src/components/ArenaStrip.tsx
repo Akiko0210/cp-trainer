@@ -10,7 +10,8 @@ import type { Duel, GuildContest } from "@/lib/arena-queries";
 /*
   The arena's one-line presence on the guild page.
 
-  The full panels live on /guild/arena; this strip exists because the two
+  The full panels live on /guild/duels and /guild/contests; this strip exists
+  because the two
   things that can't wait for a navigation are an incoming challenge (five
   minutes and counting) and a race already running. Everything else is a
   quiet link. When nothing is happening it stays one sentence tall — the
@@ -67,7 +68,7 @@ export default function ArenaStrip({ meId }: { meId: number }) {
         // Accepting means the race is already running — put the problem in
         // front of them instead of leaving a countdown ticking in a strip.
         if (res.ok && body.action === "accept") {
-          router.push("/guild/arena");
+          router.push("/guild/duels");
           return;
         }
         await load();
@@ -185,12 +186,43 @@ export default function ArenaStrip({ meId }: { meId: number }) {
         {!state && <span className="text-muted">…</span>}
       </div>
 
-      <Link
-        href="/guild/arena"
-        className="shrink-0 text-sm font-medium text-accent transition-opacity hover:opacity-80"
-      >
-        {duel?.status === "active" || contest ? "Open the arena →" : "Enter the arena →"}
-      </Link>
+      {/*
+        The link goes where the news is. With something live there is exactly
+        one place worth being, so send them straight there rather than making
+        them pick a tab they already know the answer to.
+      */}
+      <div className="flex shrink-0 items-center gap-3 text-sm font-medium">
+        {duel ? (
+          <Link
+            href="/guild/duels"
+            className="text-accent transition-opacity hover:opacity-80"
+          >
+            Go to the duel →
+          </Link>
+        ) : contest ? (
+          <Link
+            href="/guild/contests"
+            className="text-accent transition-opacity hover:opacity-80"
+          >
+            Go to the contest →
+          </Link>
+        ) : (
+          <>
+            <Link
+              href="/guild/duels"
+              className="text-accent transition-opacity hover:opacity-80"
+            >
+              Duels →
+            </Link>
+            <Link
+              href="/guild/contests"
+              className="text-accent transition-opacity hover:opacity-80"
+            >
+              Contests →
+            </Link>
+          </>
+        )}
+      </div>
     </div>
   );
 }

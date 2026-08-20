@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "packageManager": "pnpm@9.15.3",
   "private": true,
+  "description": "Personal competitive-programming trainer: mirrors your Codeforces history, estimates per-topic mastery, tracks repeat mistakes, and picks what to solve next.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

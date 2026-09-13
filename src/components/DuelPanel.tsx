@@ -1,22 +1,38 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ActionButton, fmtClock, useNow } from "./arena-ui";
+import {
+  ActionButton,
+  fmtClock,
+  fmtDur,
+  LoadingCard,
+  useAct,
+  useNow,
+} from "./arena-ui";
+import BulletDuelView from "./BulletDuelView";
 import { useGuildLive } from "./GuildLive";
 import { shortName } from "./guild-ui";
-import { Card } from "./ui";
+import Select from "./Select";
+import { Toasts, useToasts } from "./Toast";
+import { Card, Label } from "./ui";
 import type { Duel } from "@/lib/arena-queries";
+import {
+  BULLET_DURATIONS_S,
+  BULLET_START,
+  BULLET_STEPS,
+  type DuelMode,
+} from "@/lib/arena-rules";
 
 /*
-  Duels: challenge a guildmate, both get the same unseen problem, first
-  accepted solution wins. No rating, no stakes — the loser's mastery scores
-  don't know it happened.
+  Duels: challenge a guildmate. Classic — both get the same unseen problem,
+  first accepted solution wins. Bullet — a clock and a ladder of problems,
+  each round worth its problem's rating, most points at the bell. No rating,
+  no stakes — the loser's mastery scores don't know it happened.
 
   State lives on the server; this panel only renders it and refetches when the
-  live stream says a duel row moved (the `duel` events in StandingsEvent).
-  The countdowns are the one client-side thing, and when one runs out the
-  panel refetches rather than declaring anything itself — the server's sweep
-  is the referee.
+  live stream says a duel row (or a bullet round) moved. The countdowns are
+  the one client-side thing, and when one runs out the panel refetches rather
+  than declaring anything itself — the server's sweep is the referee.
 */
 
 type Member = {
@@ -35,15 +51,23 @@ type DuelState = {
   detectable: boolean;
 };
 
+const START_RATINGS = Array.from(
+  { length: (BULLET_START.max - BULLET_START.min) / 100 + 1 },
+  (_, i) => BULLET_START.min + i * 100,
+);
+
 export default function DuelPanel({ meId }: { meId: number }) {
-  const { version } = useGuildLive();
+  const { version, live } = useGuildLive();
   const [state, setState] = useState<DuelState | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [opponent, setOpponent] = useState<string>("");
+  const [mode, setMode] = useState<DuelMode>("classic");
+  const [minutes, setMinutes] = useState("10");
+  const [start, setStart] = useState("1000");
+  const [step, setStep] = useState("100");
   // A finished duel stays on screen until dismissed; remember which one was
   // waved away so it doesn't reappear on the next refetch.
   const [dismissedId, setDismissedId] = useState<number | null>(null);
+  const { toasts, push } = useToasts();
 
   const load = useCallback(async () => {
     try {
@@ -71,27 +95,7 @@ export default function DuelPanel({ meId }: { meId: number }) {
     };
   }, [version]);
 
-  const act = useCallback(
-    async (url: string, body: Record<string, unknown>) => {
-      setBusy(true);
-      setError(null);
-      try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const data = (await res.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        if (!res.ok) setError(data?.error ?? "That didn't work.");
-        await load();
-      } finally {
-        setBusy(false);
-      }
-    },
-    [load],
-  );
+  const { act, busy, error } = useAct(load);
 
   const duel =
     state?.duel && state.duel.id !== dismissedId ? state.duel : null;
@@ -117,13 +121,7 @@ export default function DuelPanel({ meId }: { meId: number }) {
     return () => clearTimeout(t);
   }, [ticking, deadlineMs, load]);
 
-  if (!state) {
-    return (
-      <Card>
-        <p className="text-sm text-muted">Loading…</p>
-      </Card>
-    );
-  }
+  if (!state) return <LoadingCard />;
 
   const iAmChallenger = duel?.challenger_id === meId;
   const rival = duel
@@ -131,6 +129,16 @@ export default function DuelPanel({ meId }: { meId: number }) {
       ? { name: duel.opponent_name }
       : { name: duel.challenger_name }
     : null;
+  const myPoints = duel
+    ? iAmChallenger
+      ? duel.challenger_points
+      : duel.opponent_points
+    : 0;
+  const theirPoints = duel
+    ? iAmChallenger
+      ? duel.opponent_points
+      : duel.challenger_points
+    : 0;
 
   return (
     <Card>
@@ -141,34 +149,106 @@ export default function DuelPanel({ meId }: { meId: number }) {
         </p>
       )}
 
-      {/* ---- no duel: pick a victim ---- */}
+      {/* ---- no duel: pick a victim, pick a mode ---- */}
       {!duel && (
         <div>
-          {/* The rules live in the page's subheader now, not here. */}
+          <div
+            role="tablist"
+            aria-label="Duel mode"
+            className="mb-3 inline-flex rounded-xl bg-card-2 p-1"
+          >
+            {(
+              [
+                ["classic", "Classic", "one problem, first AC"],
+                ["bullet", "Bullet", "a clock, a ladder, points"],
+              ] as const
+            ).map(([value, label, hint]) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={mode === value}
+                onClick={() => setMode(value)}
+                title={hint}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  mode === value
+                    ? "bg-card text-ink shadow-sm"
+                    : "text-muted hover:text-ink"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="flex flex-wrap items-center gap-2">
-            <select
+            <Select
               value={opponent}
-              onChange={(e) => setOpponent(e.target.value)}
-              className="min-w-0 flex-1 rounded-xl border border-line bg-page px-3 py-2.5 text-sm"
-              aria-label="Choose an opponent"
-            >
-              <option value="">Choose an opponent…</option>
-              {state.members.map((m) => (
-                <option key={m.user_id} value={m.user_id}>
-                  {m.display_name ?? m.github_login ?? m.cf_handle}
-                  {m.cf_rating ? ` · ${m.cf_rating}` : ""}
-                </option>
-              ))}
-            </select>
+              onChange={setOpponent}
+              placeholder="Choose an opponent…"
+              ariaLabel="Choose an opponent"
+              className="min-w-52 flex-1"
+              options={state.members.map((m) => ({
+                value: String(m.user_id),
+                label: m.display_name ?? m.github_login ?? m.cf_handle,
+                hint: m.cf_rating ? String(m.cf_rating) : undefined,
+              }))}
+            />
+            {mode === "bullet" && (
+              <>
+                <Select
+                  value={minutes}
+                  onChange={setMinutes}
+                  ariaLabel="Bullet clock"
+                  className="w-28"
+                  options={BULLET_DURATIONS_S.map((s) => ({
+                    value: String(s / 60),
+                    label: `${s / 60} min`,
+                  }))}
+                />
+                <Select
+                  value={start}
+                  onChange={setStart}
+                  ariaLabel="Ladder starts at"
+                  className="w-32"
+                  options={START_RATINGS.map((r) => ({
+                    value: String(r),
+                    label: `from ${r}`,
+                  }))}
+                />
+                <Select
+                  value={step}
+                  onChange={setStep}
+                  ariaLabel="Ladder step per round"
+                  className="w-32"
+                  options={BULLET_STEPS.map((s) => ({
+                    value: String(s),
+                    label: `+${s} a round`,
+                  }))}
+                />
+              </>
+            )}
             <ActionButton
               disabled={busy || !opponent || !state.detectable}
               onClick={() =>
-                void act("/api/guild/duels", { opponent_id: Number(opponent) })
+                void act("/api/guild/duels", {
+                  opponent_id: Number(opponent),
+                  mode,
+                  duration_s: Number(minutes) * 60,
+                  start_rating: Number(start),
+                  step: Number(step),
+                })
               }
             >
-              Challenge
+              {mode === "bullet" ? "Challenge to bullet" : "Challenge"}
             </ActionButton>
           </div>
+          {mode === "bullet" && (
+            <p className="mt-2 text-xs text-muted">
+              Same problem for both; first AC takes the round and its rating in
+              points, and the next, harder one opens at once. Most points at
+              the bell wins.
+            </p>
+          )}
           {state.members.length === 0 && (
             <p className="mt-2 text-xs text-muted">
               Nobody else with a linked handle yet — duels need two.
@@ -188,12 +268,20 @@ export default function DuelPanel({ meId }: { meId: number }) {
               </>
             ) : (
               <>
-                <strong>{rival?.name}</strong> challenges you! Same problem for
-                both, first AC wins. Expires in{" "}
-                <span className="num">{fmtClock(remaining ?? 0)}</span>.
+                <strong>{rival?.name}</strong> challenges you!{" "}
+                {duel.mode === "bullet"
+                  ? "A bullet ladder — first AC takes each round, most points at the bell."
+                  : "Same problem for both, first AC wins."}{" "}
+                Expires in <span className="num">{fmtClock(remaining ?? 0)}</span>.
               </>
             )}
           </p>
+          {duel.mode === "bullet" && (
+            <p className="mt-1 text-xs text-muted">
+              Bullet · {fmtDur(duel.duration_s)} · from {duel.bullet_start_rating},
+              +{duel.bullet_step} a round
+            </p>
+          )}
           <div className="mt-3 flex gap-2">
             {iAmChallenger ? (
               <ActionButton
@@ -231,7 +319,20 @@ export default function DuelPanel({ meId }: { meId: number }) {
       )}
 
       {/* ---- active: the race ---- */}
-      {duel?.status === "active" && (
+      {duel?.status === "active" && duel.mode === "bullet" && (
+        <BulletDuelView
+          duel={duel}
+          meId={meId}
+          remainingMs={remaining ?? 0}
+          live={live}
+          busy={busy}
+          push={push}
+          onForfeit={() =>
+            void act(`/api/guild/duels/${duel.id}`, { action: "forfeit" })
+          }
+        />
+      )}
+      {duel?.status === "active" && duel.mode === "classic" && (
         <div>
           <div className="flex items-baseline justify-between gap-3">
             <p className="text-sm">
@@ -277,7 +378,53 @@ export default function DuelPanel({ meId }: { meId: number }) {
       {duel?.status === "finished" && (
         <div>
           <p className="text-sm">
-            {duel.finish_reason === "timeout" ? (
+            {duel.mode === "bullet" ? (
+              duel.finish_reason === "forfeit" ? (
+                duel.winner_id === meId ? (
+                  <>
+                    <strong>You won</strong> — {rival?.name} conceded at{" "}
+                    <span className="num">
+                      {myPoints}–{theirPoints}
+                    </span>
+                    .
+                  </>
+                ) : (
+                  <>
+                    <strong>{duel.winner_name}</strong> takes it — you conceded at{" "}
+                    <span className="num">
+                      {myPoints}–{theirPoints}
+                    </span>
+                    .
+                  </>
+                )
+              ) : duel.winner_id === null ? (
+                <>
+                  Time! A draw,{" "}
+                  <span className="num">
+                    {myPoints}–{theirPoints}
+                  </span>{" "}
+                  over {duel.rounds_opened} round{duel.rounds_opened === 1 ? "" : "s"}.
+                  Honourably.
+                </>
+              ) : duel.winner_id === meId ? (
+                <>
+                  Time! <strong>You won</strong>{" "}
+                  <span className="num">
+                    {myPoints}–{theirPoints}
+                  </span>{" "}
+                  over {duel.rounds_opened} round{duel.rounds_opened === 1 ? "" : "s"}.
+                </>
+              ) : (
+                <>
+                  Time! <strong>{duel.winner_name}</strong> wins{" "}
+                  <span className="num">
+                    {theirPoints}–{myPoints}
+                  </span>{" "}
+                  over {duel.rounds_opened} round{duel.rounds_opened === 1 ? "" : "s"}.
+                  Rematch?
+                </>
+              )
+            ) : duel.finish_reason === "timeout" ? (
               <>
                 Time ran out — nobody cracked{" "}
                 <strong>{duel.problem_title}</strong>. A draw, honourably.
@@ -325,14 +472,12 @@ export default function DuelPanel({ meId }: { meId: number }) {
       {/* ---- recent results ---- */}
       {state.recent.length > 0 && (
         <div className="mt-5 border-t border-line pt-3">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">
-            Recent duels
-          </div>
+          <Label>Recent duels</Label>
           <ul className="space-y-1.5">
             {state.recent.slice(0, 5).map((d) => (
               <li key={d.id} className="flex items-baseline gap-2 text-sm">
                 <span className="min-w-0 truncate">
-                  {d.finish_reason === "timeout" ? (
+                  {d.winner_id === null ? (
                     <>
                       {shortName({ display_name: d.challenger_name })} ·{" "}
                       {shortName({ display_name: d.opponent_name })} — draw
@@ -352,8 +497,18 @@ export default function DuelPanel({ meId }: { meId: number }) {
                       {d.finish_reason === "forfeit" && " by concession"}
                     </>
                   )}
+                  {d.mode === "bullet" && (
+                    <span className="num text-muted">
+                      {" "}
+                      · bullet{" "}
+                      {d.winner_id === d.opponent_id
+                        ? `${d.opponent_points}–${d.challenger_points}`
+                        : `${d.challenger_points}–${d.opponent_points}`}
+                    </span>
+                  )}
                 </span>
-                {d.finish_reason === "solve" &&
+                {d.mode === "classic" &&
+                  d.finish_reason === "solve" &&
                   d.winning_submitted_at &&
                   d.started_at && (
                     <span className="num shrink-0 text-xs text-muted">
@@ -368,6 +523,7 @@ export default function DuelPanel({ meId }: { meId: number }) {
           </ul>
         </div>
       )}
+      <Toasts items={toasts} />
     </Card>
   );
 }

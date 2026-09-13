@@ -6,21 +6,25 @@ import { usePathname } from "next/navigation";
 /*
   The guild's own sub-navigation.
 
-  One page carrying the crest, the champions, the full standings, a duel form
-  and a contest lobby is a page you scroll past rather than read. These are
-  four separate questions — where does everyone stand, who holds what, who am
-  I racing, what's the club running — so they get four pages under one roof.
+  One page carrying the crest, the champions, the full standings, a duel form,
+  a contest lobby and a tournament ladder is a page you scroll past rather
+  than read. These are five separate questions — where does everyone stand,
+  who holds what, who am I racing, what's the club running, who's climbing the
+  arena — so they get five pages under one roof.
   The header above stays put; only the panel below it changes.
 
   Standings takes the bare /guild URL because it is the question people open a
   guild to answer; the rest are somewhere you go on purpose.
 */
-const TABS = [
+const TABS: readonly { href: string; label: string; prefix?: boolean }[] = [
   { href: "/guild", label: "Standings" },
   { href: "/guild/champions", label: "Champions" },
   { href: "/guild/duels", label: "Duels" },
   { href: "/guild/contests", label: "Contests" },
-] as const;
+  // A battle has a room of its own (/guild/battles/[id]) — the one tab that
+  // owns a subtree, so the one tab that matches by prefix.
+  { href: "/guild/battles", label: "Battle arena", prefix: true },
+];
 
 export default function GuildTabs() {
   const pathname = usePathname();
@@ -34,8 +38,11 @@ export default function GuildTabs() {
       className="mb-6 -mx-1 flex gap-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {TABS.map((tab) => {
-        // Exact match only: /guild must not light up on /guild/duels.
-        const active = pathname === tab.href;
+        // Exact match only: /guild must not light up on /guild/duels. Only
+        // the tab that owns nested pages matches by prefix.
+        const active =
+          pathname === tab.href ||
+          (!!tab.prefix && pathname.startsWith(`${tab.href}/`));
         return (
           <Link
             key={tab.href}

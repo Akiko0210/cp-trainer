@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { Toasts, useToasts } from "@/components/Toast";
 import { useEffect, useState } from "react";
 import Select from "@/components/Select";
 import { Card, Label } from "@/components/ui";
@@ -50,14 +51,10 @@ export default function SetClient({
   const router = useRouter();
   const [duration, setDuration] = useState(DURATIONS[0].value);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const { toasts, push: showToast } = useToasts();
   const [summary, setSummary] = useState<SessionResult[] | null>(null);
   const [tagging, setTagging] = useState<number | null>(null);
 
-  function showToast(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2600);
-  }
 
   const solvedCount = problems.filter((p) => p.solved).length;
   const working = problems.find((p) => p.attempt_id && !p.attempt_ended_at);
@@ -296,14 +293,7 @@ export default function SetClient({
         </p>
       </Card>
 
-      {toast && (
-        <div
-          role="status"
-          className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-line bg-card px-4 py-2.5 text-sm shadow-lg shadow-black/15"
-        >
-          {toast}
-        </div>
-      )}
+      <Toasts items={toasts} />
     </div>
   );
 }

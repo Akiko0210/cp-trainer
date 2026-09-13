@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Card } from "./ui";
 
-/* Shared client pieces for the arena (duels + guild contests): one ticking
-   clock and the time formats every countdown and result agrees on. */
+/* Shared client pieces for the arena (duels, guild contests, battles): one
+   ticking clock, the time formats every countdown and result agrees on, the
+   one way a panel POSTs an action, and the big clock a race is played against. */
 
 /**
  * The current time, re-rendered once a second — but only while `enabled`.
@@ -75,5 +77,73 @@ export function ActionButton({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * POST an action and reload. The same four lines every arena panel had
+ * copied: set busy, send JSON, surface `error` from the body verbatim (every
+ * route writes it for the UI), refetch whatever the caller renders from.
+ */
+export function useAct(load: () => Promise<void>) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const act = useCallback(
+    async (url: string, body: Record<string, unknown>) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        if (!res.ok) setError(data?.error ?? "That didn't work.");
+        await load();
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load],
+  );
+  return { act, busy, error };
+}
+
+export function LoadingCard() {
+  return (
+    <Card>
+      <p className="text-sm text-muted">Loading…</p>
+    </Card>
+  );
+}
+
+/**
+ * The clock a race is played against. Big, display face, and — under a
+ * minute — pulsing in the accent. Not amber: amber is a verdict.
+ */
+export function BigClock({
+  ms,
+  urgentUnderMs = 60_000,
+  title = "Time left",
+  className = "",
+}: {
+  ms: number;
+  urgentUnderMs?: number;
+  title?: string;
+  className?: string;
+}) {
+  const urgent = ms > 0 && ms <= urgentUnderMs;
+  return (
+    <span
+      className={`num font-display inline-block text-[34px] font-semibold leading-none tracking-tight ${
+        urgent ? "clock-urgent" : ""
+      } ${className}`}
+      title={title}
+    >
+      {fmtClock(ms)}
+    </span>
   );
 }

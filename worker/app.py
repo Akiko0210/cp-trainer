@@ -7,8 +7,8 @@ a background loop keeps every user's mirror fresh on an interval.
 Run:  uv run uvicorn app:app --port 8787
 Env:  DATABASE_URL, SYNC_INTERVAL_MINUTES (default 30),
       CONTEST_REFRESH_MINUTES (default 360), ARENA_POLL_SECONDS (default 10),
-      WORKER_PORT, WORKER_TOKEN (shared with the Next app; required outside
-      localhost)
+      ARENA_BULLET_POLL_SECONDS (default 2), WORKER_PORT, WORKER_TOKEN (shared
+      with the Next app; required outside localhost)
 """
 
 import asyncio
@@ -91,9 +91,9 @@ async def _contest_loop() -> None:
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
     tasks = [asyncio.create_task(_scheduler()), asyncio.create_task(_contest_loop())]
-    # One boot-time poke so a duel or contest that was live when the worker
-    # restarted resumes detection; if nothing is active the loop parks itself
-    # after a single cheap query.
+    # One boot-time poke so a duel, contest or battle that was live (or
+    # scheduled) when the worker restarted resumes; if nothing needs it the
+    # loop parks itself after a single cheap query.
     arena.poke()
     yield
     for task in tasks:
@@ -195,8 +195,10 @@ async def sync_endpoint(user_id: int, background: BackgroundTasks, quick: bool =
 @app.post("/arena/poke", dependencies=[Depends(require_token)])
 async def arena_poke():
     """Wake the arena loop (worker/arena.py). The Next app calls this when a
-    duel goes active or a guild contest starts; the loop parks itself again
-    once nothing active remains, so poking an idle worker is nearly free."""
+    duel goes active, a guild contest starts, a battle is created, cancelled
+    or started early, or someone queues for a match — a dormant loop waiting
+    on a scheduled start has to re-evaluate. It parks itself again once
+    nothing needs it, so poking an idle worker is nearly free."""
     return {"started": arena.poke()}
 
 

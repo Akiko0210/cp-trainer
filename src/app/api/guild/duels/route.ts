@@ -15,8 +15,10 @@ export const dynamic = "force-dynamic";
 /*
   GET  -> the viewer's duel state: their open (or just-finished) duel, the
           guild's recent results, and who they could challenge.
-  POST { opponent_id } -> send a challenge. It stays 'pending' until accepted,
-          declined, withdrawn, or expired (DUEL_INVITE_TTL_S).
+  POST { opponent_id, mode?, duration_s?, start_rating?, step? } -> send a
+          challenge. It stays 'pending' until accepted, declined, withdrawn,
+          or expired (DUEL_INVITE_TTL_S). mode 'bullet' carries the clock and
+          the ladder (start rating, step per round); classic needs nothing.
 
   No guild in the path, same as every guild route: you're in exactly one.
 */
@@ -85,8 +87,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Pick an opponent." }, { status: 400 });
   }
 
+  const mode = body.mode === "bullet" ? "bullet" : "classic";
   await sweepArena(guild.id);
-  const result = await createDuel(guild.id, user.id, opponentId);
+  const result = await createDuel(guild.id, user.id, opponentId, {
+    mode,
+    durationS: Number(body.duration_s),
+    startRating: Number(body.start_rating),
+    step: Number(body.step),
+  });
   if ("error" in result) return NextResponse.json(result, { status: 409 });
   return NextResponse.json(result);
 }

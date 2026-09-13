@@ -249,11 +249,15 @@ export type Remindable = {
   starts_at_ms: number;
 };
 
-export function useContestReminders(contests: Remindable[]) {
+/**
+ * The opt-in to browser notifications, keyed per feature so turning on
+ * contest reminders doesn't also turn on arena alerts. Permission and the
+ * flag are read straight from the browser during render (guarded to
+ * post-hydration by `now`); state exists only so the toggle can move them
+ * without a reload.
+ */
+export function useNotificationOptIn(storageKey: string) {
   const now = useNowMs();
-  // Permission and the opt-in flag are read straight from the browser during
-  // render (guarded to post-hydration by `now`); state exists only so the
-  // toggle can move them without a reload.
   const [override, setOverride] = useState<{
     enabled: boolean;
     denied: boolean;
@@ -265,7 +269,27 @@ export function useContestReminders(contests: Remindable[]) {
     override?.enabled ??
     (supported &&
       Notification.permission === "granted" &&
-      localStorage.getItem(ENABLED_KEY) === "1");
+      localStorage.getItem(storageKey) === "1");
+
+  const toggle = async () => {
+    if (enabled) {
+      localStorage.setItem(storageKey, "0");
+      setOverride({ enabled: false, denied: false });
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") localStorage.setItem(storageKey, "1");
+    setOverride({
+      enabled: permission === "granted",
+      denied: permission === "denied",
+    });
+  };
+
+  return { supported, enabled, denied, toggle };
+}
+
+export function useContestReminders(contests: Remindable[]) {
+  const { supported, enabled, denied, toggle } = useNotificationOptIn(ENABLED_KEY);
 
   useEffect(() => {
     if (!enabled) return;
@@ -307,20 +331,6 @@ export function useContestReminders(contests: Remindable[]) {
     });
     return () => timers.forEach(clearTimeout);
   }, [enabled, contests]);
-
-  const toggle = async () => {
-    if (enabled) {
-      localStorage.setItem(ENABLED_KEY, "0");
-      setOverride({ enabled: false, denied: false });
-      return;
-    }
-    const permission = await Notification.requestPermission();
-    if (permission === "granted") localStorage.setItem(ENABLED_KEY, "1");
-    setOverride({
-      enabled: permission === "granted",
-      denied: permission === "denied",
-    });
-  };
 
   return { supported, enabled, denied, toggle };
 }

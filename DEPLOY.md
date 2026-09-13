@@ -421,7 +421,7 @@ rather than spending another day on it.
 Vercel and Neon stay exactly as Option B left them; a ~$5/mo Railway service
 runs `worker/app.py`, whose loop syncs every member every
 `SYNC_INTERVAL_MINUTES`. That loop is what the Actions cron was standing in
-for. Verified end to end on 2026-08-03: the pass fires on the half hour with
+for. Verified end to end on 2026-08-03: the pass fires on the interval with
 nothing external triggering it, and linking a handle syncs immediately.
 
 The repo already carries [`railway.json`](railway.json), which pins the build
@@ -442,8 +442,17 @@ configuration.
    round trip (§ the 86 ms lesson).
 3. **Variables:** `DATABASE_URL` (the Neon **direct** string), `WORKER_TOKEN`
    (`openssl rand -hex 32` — Vercel gets the identical value),
-   `SYNC_INTERVAL_MINUTES=30`, and `PORT=8787` so the app, the healthcheck and
-   the domain all agree on one port. `serve.py` binds whatever `PORT` says
+   `SYNC_INTERVAL_MINUTES=120`, and `PORT=8787` so the app, the healthcheck and
+   the domain all agree on one port. The interval prices Neon compute, not
+   freshness: the free tier's suspend timeout is a fixed 5 minutes, so every
+   pass costs a ~5-minute wake regardless of how little it does — 48
+   passes/day was ~1.3 CU-hrs/day of the 100/month allowance finding nothing.
+   Anything time-critical bypasses this loop anyway (linking a handle syncs
+   immediately, the solve view quick-syncs for verdicts, duels and battles
+   poll via `arena.py`). Optional: `ARENA_BULLET_POLL_SECONDS` (default 2)
+   is the sleep between arena passes while a bullet duel is live — the floor
+   is the 2.2 s Codeforces lock per polled player, so this only trims the
+   gap. `serve.py` binds whatever `PORT` says
    (Railway injects one otherwise) and listens dual-stack (`::`), because
    Railway's healthchecks arrive over IPv6 — an IPv4-only bind reads as
    "service unavailable" from a process that is demonstrably up.
@@ -484,7 +493,7 @@ lands back on the invite after authorising instead of on a dashboard with no
 guild.
 
 Each member: sign in → link their handle → they appear on the boards after the
-next half-hourly sync. A first sync mirrors the member's whole history inside that
+next scheduled sync (or immediately, with a worker configured). A first sync mirrors the member's whole history inside that
 run — a few seconds even for several thousand submissions, because each page is
 written in a handful of statements rather than one per row. A run interrupted
 part-way through the history re-reads it from the top next time, which is now
@@ -521,6 +530,7 @@ short restore history, so check what your plan retains before you need it.
 
 | | limit | what it looks like when you hit it |
 | --- | --- | --- |
+| Neon compute | 100 CU-hrs/mo | the compute is suspended until the next month: every page 500s, the worker's syncs fail. Neon bills awake time (0.25 CU floor, suspend after a fixed 5 idle minutes), not queries — so the spenders are whatever keeps it awake: a background tab holding a live stream (the app parks hidden tabs' streams, except a tab that is *in* a live match), the sync cadence (each pass buys a ~5-minute wake), the menu bar app's poll, and the arena while a race runs — a battle holds the database awake only while matches are in progress, not for its whole scheduled length (the worker sleeps without a connection until the start, the bell or the next queue click), at about 2.2 s of Codeforces polling per matched player per pass: an 8-hour battle that is actually being played all evening is on the order of 2 CU-hrs |
 | Neon storage | 0.5 GB | writes start failing; your database is ~31 MB with 6 members, so it is roughly 5–10 MB per active member |
 | Neon direct connections | one per open live stream | the board stops updating for late arrivals; only a concern above ~20 people watching at once |
 | Actions minutes | 2,000/mo on a private repo, unlimited on a public one | only bites if you get a schedule working at all; billing rounds each run up to a minute |

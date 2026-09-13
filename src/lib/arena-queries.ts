@@ -1,14 +1,28 @@
+import {
+  BULLET_DURATIONS_S,
+  BULLET_START,
+  BULLET_STEPS,
+  type DuelMode,
+} from "./arena-rules";
 import { one, q } from "./db";
 
+export {
+  BULLET_DURATIONS_S,
+  BULLET_START,
+  BULLET_STEPS,
+  type DuelMode,
+} from "./arena-rules";
+
 /*
-  The arena: duels and custom guild contests.
+  The arena: duels (classic and bullet) and custom guild contests.
 
   Division of labour, matching the rest of the app: this module owns every
   decision that is pure SQL — who may challenge whom, which problem a duel or
   contest gets, what the standings are — and the worker owns the only part
   that needs judge traffic: noticing the solve (worker/arena.py). Picking a
   random problem never touches Codeforces, because problem_catalog *is* the
-  problemset, mirrored.
+  problemset, mirrored — and since 006 the picker itself is a SQL function
+  (arena_pick_problem), so the app and the worker draw from one rule.
 
   No rating anywhere. A duel is a race between two people who agreed to race;
   nothing here writes to topic_mastery, ability_estimate, or anything else the
@@ -17,7 +31,7 @@ import { one, q } from "./db";
 
 /** How long a challenge waits for an answer. */
 export const DUEL_INVITE_TTL_S = 5 * 60;
-/** How long an accepted duel may run before it's a draw. */
+/** How long an accepted classic duel may run before it's a draw. */
 export const DUEL_DURATION_S = 45 * 60;
 
 export type DuelStatus =
@@ -28,12 +42,29 @@ export type DuelStatus =
   | "active"
   | "finished";
 
+export type DuelRound = {
+  round_no: number;
+  problem_id: number;
+  target_rating: number;
+  /** What the round was worth — the problem's rating when it opened. */
+  points: number;
+  opened_at: string;
+  winner_id: number | null;
+  winner_name: string | null;
+  won_at: string | null;
+  closed_at: string | null;
+  problem_title: string;
+  problem_url: string;
+  problem_rating: number | null;
+};
+
 export type Duel = {
   id: number;
   guild_id: number;
   challenger_id: number;
   opponent_id: number;
   status: DuelStatus;
+  /** Bullet's bell is 'timeout' too: winner_id says who had more points. */
   finish_reason: "solve" | "forfeit" | "timeout" | null;
   winner_id: number | null;
   created_at: string;
@@ -42,6 +73,10 @@ export type Duel = {
   deadline_at: string | null;
   finished_at: string | null;
   winning_submitted_at: string | null;
+  mode: DuelMode;
+  duration_s: number;
+  bullet_start_rating: number | null;
+  bullet_step: number | null;
   // joined display fields
   challenger_name: string | null;
   opponent_name: string | null;
@@ -49,6 +84,12 @@ export type Duel = {
   problem_title: string | null;
   problem_url: string | null;
   problem_rating: number | null;
+  /** Bullet: points so far (sum of the ratings of rounds taken). 0 for classic. */
+  challenger_points: number;
+  opponent_points: number;
+  rounds_opened: number;
+  /** Bullet rounds, oldest first — only on the viewer's own duel. */
+  rounds?: DuelRound[];
 };
 
 export type ArenaError = { error: string };
@@ -58,49 +99,54 @@ const DUEL_SELECT = `
          coalesce(uc.display_name, uc.github_login) as challenger_name,
          coalesce(uo.display_name, uo.github_login) as opponent_name,
          coalesce(uw.display_name, uw.github_login) as winner_name,
-         p.title as problem_title, p.url as problem_url, p.rating as problem_rating
+         p.title as problem_title, p.url as problem_url, p.rating as problem_rating,
+         pts.challenger_points, pts.opponent_points, pts.rounds_opened
   from duels d
   join users uc on uc.id = d.challenger_id
   join users uo on uo.id = d.opponent_id
   left join users uw on uw.id = d.winner_id
-  left join problem_catalog p on p.id = d.problem_id`;
+  left join problem_catalog p on p.id = d.problem_id
+  left join lateral (
+    select coalesce(sum(r.points) filter (where r.winner_id = d.challenger_id), 0)::int
+             as challenger_points,
+           coalesce(sum(r.points) filter (where r.winner_id = d.opponent_id), 0)::int
+             as opponent_points,
+           count(*)::int as rounds_opened
+    from duel_rounds r where r.duel_id = d.id) pts on true`;
+
+const ROUNDS_SELECT = `
+  select r.round_no, r.problem_id, r.target_rating, r.points, r.opened_at,
+         r.winner_id, coalesce(uw.display_name, uw.github_login) as winner_name,
+         r.won_at, r.closed_at,
+         p.title as problem_title, p.url as problem_url, p.rating as problem_rating
+  from duel_rounds r
+  join problem_catalog p on p.id = r.problem_id
+  left join users uw on uw.id = r.winner_id
+  where r.duel_id = $1
+  order by r.round_no`;
 
 /*
-  Time-based transitions, run lazily before reads and writes. The worker's
-  arena loop runs the same sweeps while it polls; doing them here too means a
-  dead worker degrades to "solves detected late", never to a pending
-  invitation that looks alive forever. Idempotent by construction.
+  Time-based transitions, run lazily before reads and writes. arena_sweep()
+  in the schema is the one implementation — the worker's loop calls the same
+  function — so a dead worker degrades to "solves detected late", never to a
+  pending invitation that looks alive forever, and the two can't disagree
+  about what a clock means. Idempotent by construction.
 */
 export async function sweepArena(guildId: number): Promise<void> {
-  await q(
-    `update duels set status = 'expired'
-     where guild_id = $1 and status = 'pending' and expires_at < now()`,
-    [guildId],
-  );
-  await q(
-    `update duels set status = 'finished', finish_reason = 'timeout',
-                      finished_at = now()
-     where guild_id = $1 and status = 'active' and deadline_at < now()`,
-    [guildId],
-  );
-  await q(
-    `update guild_contests set status = 'finished', finished_at = now()
-     where guild_id = $1 and status = 'active' and ends_at < now()`,
-    [guildId],
-  );
+  await q("select arena_sweep($1::bigint)", [guildId]);
 }
 
 /**
  * The viewer's one relevant duel: open (pending or active), or finished in
  * the last few minutes so the result is still on screen when the race ends.
  * "One open duel per person" is enforced at creation, so this is at most one
- * open row.
+ * open row. A bullet duel comes with its rounds.
  */
 export async function getMyDuel(
   guildId: number,
   userId: number,
 ): Promise<Duel | null> {
-  return one<Duel>(
+  const duel = await one<Duel>(
     `${DUEL_SELECT}
      where d.guild_id = $1 and $2 in (d.challenger_id, d.opponent_id)
        and (d.status in ('pending', 'active')
@@ -108,6 +154,10 @@ export async function getMyDuel(
      order by d.created_at desc limit 1`,
     [guildId, userId],
   );
+  if (duel && duel.mode === "bullet") {
+    duel.rounds = await q<DuelRound>(ROUNDS_SELECT, [duel.id]);
+  }
+  return duel;
 }
 
 /** Finished duels across the guild — the results feed. */
@@ -135,10 +185,36 @@ async function openDuelFor(userId: number): Promise<Duel | null> {
   );
 }
 
+/**
+ * Racing is one thing at a time: someone in an open duel can't queue for a
+ * battle match, and someone in a battle match can't be duelled. Returns which
+ * race has them, or null.
+ */
+export async function busyElsewhere(
+  userId: number,
+): Promise<"duel" | "battle" | null> {
+  if (await openDuelFor(userId)) return "duel";
+  const match = await one(
+    "select 1 from battle_players where user_id = $1 and state = 'matched'",
+    [userId],
+  );
+  return match ? "battle" : null;
+}
+
+export type DuelOptions = {
+  mode: DuelMode;
+  /** Bullet only: the clock, one of BULLET_DURATIONS_S. */
+  durationS?: number;
+  /** Bullet only: where the ladder starts (BULLET_START) and how it climbs. */
+  startRating?: number;
+  step?: number;
+};
+
 export async function createDuel(
   guildId: number,
   challengerId: number,
   opponentId: number,
+  opts: DuelOptions = { mode: "classic" },
 ): Promise<Duel | ArenaError> {
   if (challengerId === opponentId) {
     return { error: "You can't duel yourself. Codeforces exists for that." };
@@ -151,16 +227,53 @@ export async function createDuel(
   if (!opponent.cf_handle) {
     return { error: "They haven't linked a Codeforces handle yet." };
   }
-  const mine = await openDuelFor(challengerId);
-  if (mine) return { error: "You already have a duel open. One at a time." };
-  const theirs = await openDuelFor(opponentId);
-  if (theirs) return { error: "They're already in a duel. Wait it out." };
+
+  let durationS = DUEL_DURATION_S;
+  let startRating: number | null = null;
+  let step: number | null = null;
+  if (opts.mode === "bullet") {
+    durationS = Math.floor(opts.durationS ?? 0);
+    startRating = Math.floor(opts.startRating ?? 0);
+    step = Math.floor(opts.step ?? 0);
+    if (!(BULLET_DURATIONS_S as readonly number[]).includes(durationS)) {
+      return { error: "Pick a bullet clock: 5, 10, 15, 20 or 30 minutes." };
+    }
+    if (
+      startRating < BULLET_START.min ||
+      startRating > BULLET_START.max ||
+      startRating % 100 !== 0
+    ) {
+      return { error: `Start the ladder between ${BULLET_START.min} and ${BULLET_START.max}.` };
+    }
+    if (!(BULLET_STEPS as readonly number[]).includes(step)) {
+      return { error: "The ladder climbs by 50, 100 or 200 a round." };
+    }
+  } else if (opts.mode !== "classic") {
+    return { error: "Unknown duel mode." };
+  }
+
+  const mine = await busyElsewhere(challengerId);
+  if (mine === "duel") return { error: "You already have a duel open. One at a time." };
+  if (mine === "battle") return { error: "You're in a battle match — finish that first." };
+  const theirs = await busyElsewhere(opponentId);
+  if (theirs === "duel") return { error: "They're already in a duel. Wait it out." };
+  if (theirs === "battle") return { error: "They're in a battle match right now." };
 
   const row = await one<{ id: number }>(
-    `insert into duels (guild_id, challenger_id, opponent_id, expires_at)
-     values ($1, $2, $3, now() + make_interval(secs => $4))
+    `insert into duels (guild_id, challenger_id, opponent_id, expires_at,
+                        mode, duration_s, bullet_start_rating, bullet_step)
+     values ($1, $2, $3, now() + make_interval(secs => $4), $5, $6, $7, $8)
      returning id`,
-    [guildId, challengerId, opponentId, DUEL_INVITE_TTL_S],
+    [
+      guildId,
+      challengerId,
+      opponentId,
+      DUEL_INVITE_TTL_S,
+      opts.mode,
+      durationS,
+      startRating,
+      step,
+    ],
   );
   return (await duelById(row!.id))!;
 }
@@ -170,37 +283,14 @@ async function duelById(id: number): Promise<Duel | null> {
 }
 
 /**
- * Pick the duel problem: rated, from the CF catalog, and untouched by either
- * player — any submission counts as "seen", because half-solving a problem
- * last month is exactly the head start a race can't have. Centred on the
- * players' average rating and widened until something matches, so two
- * grandmasters in a thin band still get a problem rather than an error.
+ * Accept a challenge. The problem is chosen here, not at challenge time —
+ * picking early would let the challenger scout it while the invitation sat
+ * unanswered — by arena_pick_problem: rated, from the CF catalog, untouched
+ * by either player (any submission counts as "seen", because half-solving a
+ * problem last month is exactly the head start a race can't have), centred
+ * on the players' average rating for classic or on the chosen start for
+ * bullet, and widened until something matches.
  */
-async function pickDuelProblem(
-  aId: number,
-  bId: number,
-): Promise<{ id: number } | null> {
-  const avg = await one<{ target: number }>(
-    `select coalesce(avg(coalesce(cf_rating, 1200)), 1200)::int as target
-     from users where id in ($1, $2)`,
-    [aId, bId],
-  );
-  const target = Math.min(Math.max(avg?.target ?? 1200, 800), 3000);
-  for (const band of [150, 300, 600, 3500]) {
-    const hit = await one<{ id: number }>(
-      `select p.id from problem_catalog p
-       where p.source = 'cf' and p.active and p.contest_id is not null
-         and p.rating between $1 and $2
-         and not exists (select 1 from submissions s
-                         where s.problem_id = p.id and s.user_id in ($3, $4))
-       order by random() limit 1`,
-      [target - band, target + band, aId, bId],
-    );
-    if (hit) return hit;
-  }
-  return null;
-}
-
 export async function acceptDuel(
   duelId: number,
   userId: number,
@@ -216,23 +306,62 @@ export async function acceptDuel(
     ]);
     return { error: "Too slow — the challenge expired." };
   }
-
-  const problem = await pickDuelProblem(duel.challenger_id, duel.opponent_id);
-  if (!problem) {
-    return { error: "Couldn't find a problem neither of you has touched." };
+  if ((await busyElsewhere(userId)) === "battle") {
+    return { error: "You're in a battle match — finish that first." };
   }
 
-  // Guarded update: two accept clicks race here, and only one may start the
-  // clock. The loser of the race just re-reads the started duel.
-  const started = await one<{ id: number }>(
-    `update duels set status = 'active', problem_id = $2, started_at = now(),
-                      deadline_at = now() + make_interval(secs => $3)
-     where id = $1 and status = 'pending'
-     returning id`,
-    [duelId, problem.id, DUEL_DURATION_S],
+  if (duel.mode === "bullet") {
+    // Pick, start the clock and open round one in one transaction (see
+    // bullet_accept in the schema): null = gone, 0 = nothing unseen at that
+    // start, 1 = started. Two accept clicks race inside the row lock, and the
+    // loser just re-reads the started duel.
+    const row = await one<{ started: number | null }>(
+      "select bullet_accept($1, $2) as started",
+      [duelId, userId],
+    );
+    if (row?.started === 0) {
+      return { error: "No problem neither of you has touched near that start — try another." };
+    }
+    if (row?.started !== 1) return { error: "That challenge is gone." };
+    return (await getDuelWithRounds(duelId))!;
+  }
+
+  const avg = await one<{ target: number }>(
+    `select coalesce(avg(coalesce(cf_rating, 1200)), 1200)::int as target
+     from users where id in ($1, $2)`,
+    [duel.challenger_id, duel.opponent_id],
   );
-  if (!started) return { error: "That challenge is gone." };
+  const target = Math.min(Math.max(avg?.target ?? 1200, 800), 3000);
+  // Guarded update: two accept clicks race here, and only one may start the
+  // clock. The loser of the race just re-reads the started duel. A null pick
+  // (catalog exhausted for this pair) leaves it pending.
+  const started = await one<{ id: number; picked: number | null }>(
+    `with pick as (
+       select arena_pick_problem(array[$2, $3]::bigint[], $4, '{}'::bigint[]) as id)
+     update duels d
+        set status = 'active', problem_id = pick.id, started_at = now(),
+            deadline_at = now() + make_interval(secs => d.duration_s)
+       from pick
+      where d.id = $1 and d.status = 'pending' and pick.id is not null
+      returning d.id, pick.id as picked`,
+    [duelId, duel.challenger_id, duel.opponent_id, target],
+  );
+  if (!started) {
+    const still = await duelById(duelId);
+    if (still?.status === "pending") {
+      return { error: "Couldn't find a problem neither of you has touched." };
+    }
+    return { error: "That challenge is gone." };
+  }
   return (await duelById(duelId))!;
+}
+
+async function getDuelWithRounds(duelId: number): Promise<Duel | null> {
+  const duel = await duelById(duelId);
+  if (duel && duel.mode === "bullet") {
+    duel.rounds = await q<DuelRound>(ROUNDS_SELECT, [duelId]);
+  }
+  return duel;
 }
 
 export async function declineDuel(
@@ -263,7 +392,7 @@ export async function cancelDuel(
   return (await duelById(duelId))!;
 }
 
-/** Conceding an active duel hands the win to the other side. */
+/** Conceding an active duel hands the win to the other side — points or not. */
 export async function forfeitDuel(
   duelId: number,
   userId: number,
@@ -278,7 +407,12 @@ export async function forfeitDuel(
     [duelId, userId],
   );
   if (!row) return { error: "No active duel of yours to concede." };
-  return (await duelById(duelId))!;
+  // A bullet round in play closes unwon.
+  await q(
+    "update duel_rounds set closed_at = now() where duel_id = $1 and closed_at is null",
+    [duelId],
+  );
+  return (await getDuelWithRounds(duelId))!;
 }
 
 // ---------- guild contests ----------

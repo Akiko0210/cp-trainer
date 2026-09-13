@@ -37,7 +37,11 @@ export type StandingsEvent =
   // changes ride the same channel, so every consumer's "something moved,
   // refetch" logic covers them with no new plumbing.
   | { type: "duel"; guild_id: number; duel_id: number; status: string }
-  | { type: "contest"; guild_id: number; contest_id: number; status: string };
+  | { type: "contest"; guild_id: number; contest_id: number; status: string }
+  // 006: a battle's own row (status = its lifecycle) or one of its children
+  // (status 'players' | 'match'). Consumers refetch and diff; nothing reads
+  // the payload beyond guild_id.
+  | { type: "battle"; guild_id: number; battle_id: number; status: string };
 
 type Subscriber = (event: StandingsEvent) => void;
 

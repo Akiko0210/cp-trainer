@@ -189,20 +189,21 @@ public Codeforces handles chosen near this account's own level, so the champions
 grid shows a contest rather than one grandmaster sweeping all eight areas. The
 file says how to remove them.
 
-### The arena: duels and custom contests
+### The arena: duels, custom contests, and the battle arena
 
-Two ways a guild races, both deliberately rating-free — nothing in the arena
+Four ways a guild races, all deliberately rating-free — nothing in the arena
 writes to mastery or the ability fit, so losing a duel costs pride and only
-pride. Duels and contests get a page each (`/guild/duels`, `/guild/contests`),
-because a duel form and a contest lobby side by side read as one cluttered
-control panel rather than two things you do.
+pride. Duels, contests and battles get a page each (`/guild/duels`,
+`/guild/contests`, `/guild/battles`), because a duel form, a contest lobby and
+a tournament ladder side by side read as one cluttered control panel rather
+than three things you do.
 
-The guild is four tabs under one header: **Standings**, **Champions**,
-**Duels**, **Contests**. Standings takes the bare `/guild` URL — it is the
-question people open a guild to answer. They live in a route group, so the
-header and tabs wrap all four without adding a path segment, and the invite
-page (`/guild/join/[code]`) stays outside it — it is shown to people who are
-not in the guild yet, and guild chrome would be a lie there.
+The guild is five tabs under one header: **Standings**, **Champions**,
+**Duels**, **Contests**, **Battle arena**. Standings takes the bare `/guild`
+URL — it is the question people open a guild to answer. They live in a route
+group, so the header and tabs wrap all five without adding a path segment, and
+the invite page (`/guild/join/[code]`) stays outside it — it is shown to people
+who are not in the guild yet, and guild chrome would be a lie there.
 
 A pending duel is therefore visible on the Duels tab and nowhere else: there
 is no cross-page banner announcing one. That is deliberate — the invitation
@@ -210,26 +211,76 @@ already carries its own five-minute clock, and a challenge nobody opened
 simply expires.
 
 A **duel** is a challenge to one guildmate: the invitation holds for five
-minutes, and accepting it starts a 45-minute race on one random problem —
-rated near the pair's average, drawn from the mirrored CF problemset, and
-untouched by either player (any past submission counts as touched; a problem
-half-solved last month is a head start). First accepted solution wins, on the
-judge's own clock. A **guild contest** is the same idea for the whole roster:
-anyone opens a lobby naming a problem count, a rating band and a duration;
-members join; the creator starts it, which is when the problems are chosen —
-against the final field, so nobody has seen theirs. The board ranks by solves,
-ties broken by summed solve time, with no wrong-answer penalty: a fun contest
-that punishes trying is neither.
+minutes. *Classic*: accepting it starts a 45-minute race on one random
+problem — rated near the pair's average, drawn from the mirrored CF
+problemset, and untouched by either player (any past submission counts as
+touched; a problem half-solved last month is a head start). First accepted
+solution wins, on the judge's own clock. *Bullet*: the challenger picks a
+clock (5–30 min), where the ladder starts (800–2400) and how steeply it
+climbs (+50/+100/+200 a round). Both get the same problem; the first AC takes
+the round and scores **the problem's rating in points** — the other side gets
+nothing — and the next, harder problem opens at once (round *k* is drawn at
+start + step·(k−1), never one either player has touched or one this duel
+already used). Most points at the bell wins; equal is a draw. Conceding hands
+it over regardless of the score.
+
+A **guild contest** is the same idea for the whole roster: anyone opens a
+lobby naming a problem count, a rating band and a duration; members join; the
+creator starts it, which is when the problems are chosen — against the final
+field, so nobody has seen theirs. The board ranks by solves, ties broken by
+summed solve time, with no wrong-answer penalty: a fun contest that punishes
+trying is neither.
+
+A **battle** is a scheduled tournament. Anyone hosts one — a name, a start
+time, how long it runs (30 min–8 h), how many may join (2–64), what tier 1
+plays at (800–3000) and the step between tiers (+100/+200/+300) — and the host
+plays like everyone else, with no more power than *cancel before the start*
+(or *start now*). Joining closes when it starts; fewer than two people means
+it never does. Everyone begins at tier 1, queued in join order. You are only
+ever paired with someone in **your own tier**: consecutive queued players
+become a match, the odd one out waits. A match is one problem at the tier's
+rating that neither of you has touched and no other match in this battle has
+used, on a 30-minute clock. First AC climbs a tier; the other side stays; a
+tie on the clock keeps both; nobody ever drops. After a match you queue again
+by hand. **Alone at the bottom tier you are out**: nobody below can ever climb
+to you, so nobody can ever be paired with you — you become a spectator, and
+the rule cascades (removing the loner can leave the next tier's loner in the
+same position). The last player standing ends it early; otherwise the bell
+rings at the set duration, no new matches are made, the ones running finish,
+and the top of the ladder is champion. Spectators see the ladder and the feed
+live but a match's problem only once that match ends; afterwards everyone's
+record — who they beat, who beat them, on which problem, in how long — is on
+the room's page.
+
+**Live report.** Both modes are only fun if you find out *now* that the other
+side solved it, that a new problem is up, that your match is ready, that
+you've climbed or been knocked out. Every room carries a feed of exactly
+those facts (derived from the refetched state, so a reload shows the same
+history everyone else saw), the ones about you arrive as toasts, and — opt-in
+per tab, because it needs browser permission — as a notification, a short
+chime and a flashed title while the tab is hidden. A participant's tab also
+keeps the live stream open while hidden for as long as they are in a match or
+the queue; spectators' tabs park as usual.
 
 Solving happens on Codeforces as usual. Detection is the worker's arena loop
 ([worker/arena.py](worker/arena.py)): while something is live it polls each
 participant's newest submissions through the same rate-limited queue as every
 other CF call, writes them into the ordinary mirror, and settles winners in
-SQL. The loop is *dormant unless something is live* — the app pokes it when a
-race starts, it parks itself when the last one ends — because an always-on
-poll would keep a scale-to-zero database awake around the clock for a feature
-nobody is using at 4am. No worker, no arena: the UI says so rather than
-offering a race nobody can win.
+SQL — first AC on the judge's clock, tie-broken by submission id, never by
+polling order. Only people actually in a race are polled (a duel's two, a
+battle's *matched* players, never its queue), because each costs 2.2 s of the
+one Codeforces lock per pass: a bullet duel is checked every ~6 s, a battle
+with 16 people in matches every ~35 s. The loop is *dormant unless something
+is live* — the app pokes it when a race starts, when a battle is scheduled or
+someone queues; it sleeps holding no connection until the next start, bell or
+poke; it parks itself when nothing needs it — because an always-on poll would
+keep a scale-to-zero database awake around the clock for a feature nobody is
+using at 4am. Every clock-driven transition (expiry, timeout, the bell, the
+knockout) lives in one SQL function, `arena_sweep`, that the app also runs
+lazily before each arena request, so a dead worker degrades to *slow*, never
+to *stuck*. The matchmaker runs only in the worker: one process, one pairing.
+No worker, no arena: the UI says so rather than offering a race nobody can
+win.
 
 ## Streak, and the menu bar readout
 

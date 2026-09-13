@@ -18,11 +18,13 @@ export default async function GuildDuelsPage() {
           Duels
         </h2>
         <p className="mt-1 max-w-2xl text-sm text-muted">
-          Challenge one guildmate. They have five minutes to accept; then you
-          both get the same unseen problem, drawn near your average rating, and
-          the first accepted solution wins. Solving happens on Codeforces as
-          usual — the winner is read off the judge&apos;s own clock. Nothing but
-          pride at stake.
+          Challenge one guildmate. They have five minutes to accept. Classic:
+          you both get the same unseen problem, drawn near your average rating,
+          and the first accepted solution wins. Bullet: a clock and a ladder —
+          first AC takes the round and its rating in points, the next, harder
+          problem opens at once, most points at the bell. Solving happens on
+          Codeforces as usual — every round is read off the judge&apos;s own
+          clock. Nothing but pride at stake.
         </p>
       </div>
       <DuelPanel meId={user.id} />

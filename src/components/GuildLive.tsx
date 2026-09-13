@@ -2,9 +2,11 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type { StandingsEvent } from "@/lib/realtime";
@@ -44,6 +46,29 @@ export function useGuildLive(): LiveState {
   return useContext(Ctx);
 }
 
+/*
+  A hold keeps the stream open while the tab is hidden.
+
+  The hidden-tab park below is a billing decision, and it is right for a
+  leaderboard nobody is looking at. It is wrong for someone in a live race: a
+  bullet player alt-tabs to their editor for the whole match, and a battle
+  player waits in the queue with the room behind another window — the moment
+  the alert matters is exactly the moment the stream would have been parked.
+  So a panel that is *in* something holds the connection open for as long as
+  that is true, and only then. Never for spectators: one held tab per player
+  in a match is bounded by the match; one per viewer of a ladder is not.
+*/
+const HoldCtx = createContext<(delta: 1 | -1) => void>(() => {});
+
+export function useLiveHold(active: boolean): void {
+  const adjust = useContext(HoldCtx);
+  useEffect(() => {
+    if (!active) return;
+    adjust(1);
+    return () => adjust(-1);
+  }, [active, adjust]);
+}
+
 export default function GuildLive({
   enabled,
   children,
@@ -56,6 +81,14 @@ export default function GuildLive({
   const [version, setVersion] = useState(0);
   const [pulse, setPulse] = useState(false);
   const [last, setLast] = useState<StandingsEvent | null>(null);
+  // Live holds (useLiveHold) and the stream effect's reaction to one
+  // changing — set inside the effect, so it closes over that effect's state.
+  const holds = useRef(0);
+  const onHoldChange = useRef<(() => void) | null>(null);
+  const adjustHold = useCallback((delta: 1 | -1) => {
+    holds.current = Math.max(0, holds.current + delta);
+    onHoldChange.current?.();
+  }, []);
 
   useEffect(() => {
     if (!enabled) return;
@@ -65,6 +98,8 @@ export default function GuildLive({
     let bump: ReturnType<typeof setTimeout> | null = null;
     let fade: ReturnType<typeof setTimeout> | null = null;
     let retry: ReturnType<typeof setTimeout> | null = null;
+    let hide: ReturnType<typeof setTimeout> | null = null;
+    let parked = false;
     let connects = 0;
     let failures = 0;
     let stopped = false;
@@ -97,19 +132,20 @@ export default function GuildLive({
       EventSource's built-in retry, which would re-dial a dead URL forever.
     */
     const connect = async () => {
+      if (stopped || parked || poll) return;
       let url: string;
       try {
         const res = await fetch("/api/guild/stream-token");
         if (!res.ok) throw new Error(String(res.status));
         ({ url } = (await res.json()) as { url: string });
       } catch {
-        if (stopped) return;
+        if (stopped || parked) return;
         failures += 1;
         if (failures >= 3 && connects === 0) fallBackToPolling();
         else scheduleReconnect();
         return;
       }
-      if (stopped) return;
+      if (stopped || parked) return;
 
       source = new EventSource(url);
 
@@ -166,19 +202,85 @@ export default function GuildLive({
 
     void connect();
 
-    // Coming back to a tab that slept through the interesting part.
-    const onVisible = () => {
-      if (document.visibilityState === "visible") refresh();
+    /*
+      A hidden tab parks its stream; coming back reconnects and refetches.
+
+      This is a billing decision, not a UX one. The database scales to zero
+      and bills on "is anything connected" — and a stream held open here keeps
+      the worker's LISTEN registered, which keeps the database awake. One
+      pinned background tab was enough to bill around the clock (measured:
+      ~61% of the month awake, mostly overnight). A hidden tab can't show the
+      board moving anyway, and the reconnect path already refetches whatever
+      was missed, so nothing is lost but the idle connection.
+
+      The 60s grace rides over a tab switch or a quick look elsewhere; it only
+      really fires when the tab has genuinely been left. It sits above the
+      worker's own 30s idle window (broadcast.py IDLE_CLOSE_S) so a brief
+      hide doesn't tear the shared LISTEN down and rebuild it.
+    */
+    const HIDE_PARK_MS = 60_000;
+    const startParkTimer = () => {
+      if (poll || hide || stopped || parked) return; // polling holds no connection
+      hide = setTimeout(() => {
+        hide = null;
+        parked = true;
+        if (retry) {
+          clearTimeout(retry);
+          retry = null;
+        }
+        source?.close();
+        source = null;
+        setLive(false);
+      }, HIDE_PARK_MS);
     };
-    document.addEventListener("visibilitychange", onVisible);
+    const unpark = () => {
+      if (hide) {
+        clearTimeout(hide);
+        hide = null;
+      }
+      if (parked) {
+        // The `ready` handler refetches (connects > 1), covering whatever
+        // moved while parked — same path as any other reconnect.
+        parked = false;
+        failures = 0;
+        void connect();
+      }
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        // A live race holds the stream open (useLiveHold); nothing to park.
+        if (holds.current > 0) return;
+        startParkTimer();
+        return;
+      }
+      if (parked || hide) {
+        unpark();
+      } else {
+        // Still connected; catch up on updates coalesced while asleep.
+        refresh();
+      }
+    };
+    // A hold taken while hidden cancels the pending park (or reconnects a
+    // parked stream); the last hold released while hidden starts the timer.
+    onHoldChange.current = () => {
+      if (stopped || document.visibilityState !== "hidden") return;
+      if (holds.current > 0) unpark();
+      else startParkTimer();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    // A restored session can begin life hidden, with no visibilitychange
+    // coming — start the park timer now or the stream outlives the grace.
+    if (document.visibilityState === "hidden") onVisibility();
 
     return () => {
       stopped = true;
+      onHoldChange.current = null;
       if (bump) clearTimeout(bump);
       if (fade) clearTimeout(fade);
       if (poll) clearInterval(poll);
       if (retry) clearTimeout(retry);
-      document.removeEventListener("visibilitychange", onVisible);
+      if (hide) clearTimeout(hide);
+      document.removeEventListener("visibilitychange", onVisibility);
       source?.close();
     };
   }, [enabled]);
@@ -187,5 +289,9 @@ export default function GuildLive({
     () => ({ live, version, pulse, last }),
     [live, version, pulse, last],
   );
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <HoldCtx.Provider value={adjustHold}>
+      <Ctx.Provider value={value}>{children}</Ctx.Provider>
+    </HoldCtx.Provider>
+  );
 }

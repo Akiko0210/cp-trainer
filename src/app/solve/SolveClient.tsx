@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Toasts, useToasts } from "@/components/Toast";
 import Select from "@/components/Select";
 import { Card, Label, VerdictBadge } from "@/components/ui";
 import type { OpenAttempt, PickerTopic, Recommendation } from "@/lib/queries";
@@ -53,7 +54,7 @@ export default function SolveClient({
   const [outcome, setOutcome] = useState<"ac" | "gave_up" | null>(null);
   const [verdicts, setVerdicts] = useState<Verdict[]>([]);
   const [checking, setChecking] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const { toasts, push: showToast } = useToasts();
 
   const loadRec = useCallback(
     async (t: string, skipN: number) => {
@@ -87,10 +88,6 @@ export default function SolveClient({
     if (phase === "pick") loadRec(topic, skip.current);
   }, [phase, topic, loadRec]);
 
-  function showToast(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2600);
-  }
 
   async function startProblem() {
     if (!rec) return;
@@ -332,14 +329,7 @@ export default function SolveClient({
         </div>
       </div>
 
-      {toast && (
-        <div
-          role="status"
-          className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-line bg-card px-4 py-2.5 text-sm shadow-lg shadow-black/15"
-        >
-          {toast}
-        </div>
-      )}
+      <Toasts items={toasts} />
     </div>
   );
 }

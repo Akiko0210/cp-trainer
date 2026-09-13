@@ -468,6 +468,60 @@ class ConnProxy:
         return getattr(self._inner, name)
 
 
+async def test_refit_skipped_when_idle(conn, user_id: int) -> None:
+    """A pass that finds nothing must not rewrite mastery — the refit was the
+    bulk of every idle pass's write load, against a database billed on being
+    awake. But "nothing" has to mean nothing: a timed attempt finishing (the
+    only solve signal Kattis ever produces — no submission arrives) and rows
+    aging past the daily freshness floor both still refit."""
+    print("\nidle pass skips the mastery refit")
+    calls = [0]
+    real = sync.mastery.recompute_user
+
+    def counting(c, uid):
+        calls[0] += 1
+        return real(c, uid)
+
+    sync.mastery.recompute_user = counting
+    install(FakeCF(account(5)))
+    try:
+        # Nothing new, previous run clean, rows fresh: skip.
+        await sync.sync_user(conn, user_id)
+        check("idle pass skips refit", calls[0], 0)
+
+        # A timed attempt ended since the last refit: mastery input moved
+        # even though the mirror didn't.
+        with conn.cursor() as cur:
+            cur.execute(
+                """insert into attempts
+                     (user_id, problem_id, started_at, ended_at, outcome,
+                      debug_time_s)
+                   select %s, id, now() - interval '10 minutes', now(), 'ac', 60
+                   from problem_catalog where external_id = %s""",
+                (user_id, f"{CONTEST_ID}A"),
+            )
+        conn.commit()
+        await sync.sync_user(conn, user_id)
+        check("ended attempt forces refit", calls[0], 1)
+
+        # Rows past the daily floor refit too: freshness decays with the
+        # clock even when no input changes.
+        with conn.cursor() as cur:
+            cur.execute(
+                "update topic_mastery set computed_at = now() - interval '25 hours'"
+                " where user_id = %s",
+                (user_id,),
+            )
+        conn.commit()
+        await sync.sync_user(conn, user_id)
+        check("stale rows force refit", calls[0], 2)
+    finally:
+        sync.mastery.recompute_user = real
+        with conn.cursor() as cur:
+            cur.execute("delete from attempts where user_id = %s", (user_id,))
+        conn.commit()
+
+
 async def test_seed_problemset(conn) -> None:
     """The problemset seeder batches too — ~14,000 problems, one round trip
     each, is the 67 minutes DEPLOY.md used to budget for."""
@@ -640,6 +694,7 @@ async def main() -> int:
             await test_incremental(conn, user_id)
             await test_killed_walk_keeps_cursor(conn, user_id)
             await test_cursor_survives_refit_failure(conn, user_id)
+            await test_refit_skipped_when_idle(conn, user_id)
             await test_seed_problemset(conn)
             test_seeder_helpers(conn, user_id)
             await test_quick_leaves_cursor(conn, user_id)

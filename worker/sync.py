@@ -8,6 +8,11 @@ Per run:
      derive time_to_first_submit_s / debug_time_s from judge timestamps —
      the judge wins on facts it records.
   4. Recompute topic mastery for the user.
+
+Steps 3–4 are skipped when provably nothing changed since the last clean run
+(no new submissions, rating unchanged, no timed attempt ended, rows younger
+than MASTERY_REFRESH_HOURS). Most scheduler passes find nothing, and the
+refit was the bulk of each pass's database write load.
 """
 
 import logging
@@ -27,6 +32,37 @@ PAGE_SIZE = 2000
 # split to stay under it, so PAGE_SIZE can be raised later without anyone
 # tripping over a limit they didn't know was there.
 MAX_BIND_PARAMS = 60000
+
+# How stale the mastery rows may grow before a pass with no new data refits
+# them anyway. The refit is not free of time even when its inputs are
+# unchanged — `score`'s freshness factor decays with the clock — but its
+# half-life is 90 days, so daily is indistinguishable from continuous. What
+# the daily floor buys: the scheduler's every-idle-pass refit was ~400 row
+# writes per user (each one firing the standings pg_notify) against a database
+# that bills for being awake.
+MASTERY_REFRESH_HOURS = 24
+
+
+def _refit_needed(cur, user_id: int) -> bool:
+    """Whether the mastery rows are behind their inputs despite no new
+    submissions: a timed attempt finished since the last refit (the Kattis/ICPC
+    path — the timer is the only solve signal there, no submission ever
+    arrives), the rows have aged past the daily freshness floor, or they were
+    never computed at all."""
+    cur.execute(
+        """
+        with m as (select max(computed_at) as computed
+                     from topic_mastery where user_id = %(uid)s),
+             a as (select max(ended_at) as attempted
+                     from attempts where user_id = %(uid)s)
+        select (m.computed is null
+                or m.computed < now() - make_interval(hours => %(hours)s)
+                or a.attempted > m.computed) as needed
+        from m, a
+        """,
+        {"uid": user_id, "hours": MASTERY_REFRESH_HOURS},
+    )
+    return bool(cur.fetchone()["needed"])
 
 
 def _chunked(rows: list, params_per_row: int):
@@ -231,6 +267,17 @@ async def sync_user(conn: psycopg.Connection, user_id: int, quick: bool = False)
             raise ValueError(f"user {user_id} has no cf_handle")
         handle = user["cf_handle"]
 
+        # Whether the LAST run finished cleanly, read before this run stamps
+        # 'running' over it. A run that died in the mastery refit left correct
+        # submissions and wrong mastery rows; the retry must refit even though
+        # it will find zero new submissions (see _refit_needed).
+        cur.execute(
+            "select status from sync_state where user_id = %s and source = 'cf_api'",
+            (user_id,),
+        )
+        row = cur.fetchone()
+        prev_ok = bool(row and row["status"] == "ok")
+
         cur.execute(
             """
             insert into sync_state (user_id, source, status, last_run_at)
@@ -245,7 +292,7 @@ async def sync_user(conn: psycopg.Connection, user_id: int, quick: bool = False)
     conn.commit()
 
     try:
-        result = await _run(conn, user_id, handle, last_synced, quick)
+        result = await _run(conn, user_id, handle, last_synced, quick, prev_ok)
         # last_synced_submission_id is not written here: _run persists it with
         # the rows it covers, so that work already committed survives a run that
         # dies later on (see _persist_cursor).
@@ -273,10 +320,19 @@ async def sync_user(conn: psycopg.Connection, user_id: int, quick: bool = False)
         raise
 
 
-async def _run(conn, user_id: int, handle: str, last_synced: int, quick: bool) -> dict:
+async def _run(
+    conn, user_id: int, handle: str, last_synced: int, quick: bool, prev_ok: bool
+) -> dict:
+    rating_changed = False
     if not quick:
         info = (await cf_api.call("user.info", handles=handle))[0]
         with conn.cursor() as cur:
+            # The mastery anchor reads cf_rating, so a rating that moved with
+            # no new submissions (rated results land hours after the contest's
+            # submissions were mirrored) still forces a refit below.
+            cur.execute("select cf_rating from users where id = %s", (user_id,))
+            row = cur.fetchone()
+            rating_changed = bool(row) and row["cf_rating"] != info.get("rating")
             cur.execute(
                 """
                 update users set cf_rating = %s, cf_max_rating = %s, cf_rank = %s
@@ -340,11 +396,24 @@ async def _run(conn, user_id: int, handle: str, last_synced: int, quick: bool) -
     with conn.cursor() as cur:
         if not _still_bound(cur, user_id, handle):
             raise ValueError(f"{handle} was unlinked mid-sync; stopping")
+        refit = (
+            new_count > 0
+            or rating_changed
+            or not prev_ok
+            or _refit_needed(cur, user_id)
+        )
 
-    reconcile_attempts(conn, user_id)
-    topics_written = mastery.recompute_user(conn, user_id)
+    if refit:
+        reconcile_attempts(conn, user_id)
+        topics_written = mastery.recompute_user(conn, user_id)
+    else:
+        topics_written = 0
     log.info(
-        "sync user=%s new_submissions=%s topics=%s", user_id, new_count, topics_written
+        "sync user=%s new_submissions=%s topics=%s%s",
+        user_id,
+        new_count,
+        topics_written,
+        "" if refit else " (refit skipped, nothing changed)",
     )
     return {
         "new_submissions": new_count,

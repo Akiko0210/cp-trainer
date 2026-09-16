@@ -69,9 +69,12 @@ MAX_PARK_S = 6 * 3600
 PAGE_SIZE = 25
 
 _task: asyncio.Task | None = None
-# Set by poke(); a dormant loop waits on it so a queue click is acted on now,
-# not at the next scheduled wake.
+# Set by poke(); the loop waits on it — dormant until the next clock event,
+# live between passes — so a queue click or a "check now" is acted on now.
 _wake = asyncio.Event()
+# Players a poke asked to have polled first in the next pass. Drained at the
+# top of that pass.
+_first: set[int] = set()
 
 
 @dataclass
@@ -84,10 +87,14 @@ class Status:
     next_wake: datetime | None
 
 
-def poke() -> bool:
-    """Ensure the loop is running and, if it is dormant, make it re-evaluate
-    now. Returns True if this call started it."""
+def poke(first: int | None = None) -> bool:
+    """Ensure the loop is running and make it re-evaluate now — a dormant
+    loop wakes, a live one skips the rest of its sleep. `first` is a user to
+    poll ahead of the field in that pass. Returns True if this call started
+    the loop."""
     global _task
+    if first is not None:
+        _first.add(int(first))
     _wake.set()
     if _task is None or _task.done():
         _task = asyncio.create_task(_loop())
@@ -112,9 +119,16 @@ async def _loop() -> None:
             with db.connect() as conn:
                 st = await _pass(conn)
             if st.live:
-                await asyncio.sleep(
-                    BULLET_POLL_INTERVAL_S if st.bullet else POLL_INTERVAL_S
-                )
+                # Interruptible: a poke during the sleep ends it. The CF lock
+                # still meters every call, so a hammered poke costs at most
+                # back-to-back passes at 2.2s per watched player.
+                try:
+                    await asyncio.wait_for(
+                        _wake.wait(),
+                        timeout=BULLET_POLL_INTERVAL_S if st.bullet else POLL_INTERVAL_S,
+                    )
+                except TimeoutError:
+                    pass
                 continue
             if st.next_wake is None:
                 log.info("arena idle — loop parked, database may sleep")
@@ -147,6 +161,11 @@ async def _pass(conn) -> Status:
     _matchmake(conn)
 
     watchers = _watchers(conn)
+    if _first:
+        # Whoever asked to be checked goes first; the rest keep their order.
+        asked = _first.copy()
+        _first.clear()
+        watchers.sort(key=lambda w: 0 if w["id"] in asked else 1)
     if watchers:
         topic_ids = tag_topic_ids(conn)
         for w in watchers:

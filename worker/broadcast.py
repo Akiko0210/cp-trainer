@@ -105,7 +105,11 @@ def verify_stream_token(token: str, secret: str) -> dict:
 
 class Broadcaster:
     def __init__(self) -> None:
-        self._subs: set[tuple[asyncio.Queue, int]] = set()
+        # (queue, guild, user). The user is what an addressed event — one
+        # carrying `recipient_id`, the inbox — is matched against; it is None
+        # for a token minted without one, and such a subscriber gets no
+        # addressed events at all rather than everybody's.
+        self._subs: set[tuple[asyncio.Queue, int, int | None]] = set()
         self._listener: asyncio.Task | None = None
         self._idle: asyncio.Task | None = None
         # Set while the LISTEN is registered; cleared when the connection
@@ -114,7 +118,7 @@ class Broadcaster:
         # board that misses events is this feature's worst failure.
         self._up = asyncio.Event()
 
-    async def register(self, guild_id: int) -> asyncio.Queue:
+    async def register(self, guild_id: int, user_id: int | None = None) -> asyncio.Queue:
         if self._idle is not None:
             self._idle.cancel()
             self._idle = None
@@ -128,11 +132,11 @@ class Broadcaster:
             # heals beats a 500 the browser would hammer us to retry.
             log.warning("stream registered before LISTEN came up")
         q: asyncio.Queue = asyncio.Queue(maxsize=QUEUE_MAX)
-        self._subs.add((q, guild_id))
+        self._subs.add((q, guild_id, user_id))
         return q
 
-    def unregister(self, q: asyncio.Queue, guild_id: int) -> None:
-        self._subs.discard((q, guild_id))
+    def unregister(self, q: asyncio.Queue, guild_id: int, user_id: int | None = None) -> None:
+        self._subs.discard((q, guild_id, user_id))
         if not self._subs:
             self._idle = asyncio.create_task(self._idle_close())
 
@@ -182,10 +186,16 @@ class Broadcaster:
         try:
             event = json.loads(payload)
             guild_id = int(event["guild_id"])
+            recipient = event.get("recipient_id")
+            recipient = None if recipient is None else int(recipient)
         except (ValueError, KeyError, TypeError):
             return  # a malformed payload must not take down the listener
-        for q, gid in list(self._subs):
+        for q, gid, uid in list(self._subs):
             if gid != guild_id:
+                continue
+            # Addressed events go to one person. A subscriber with no user
+            # claim is not "everyone" — they are nobody, for these.
+            if recipient is not None and (uid is None or uid != recipient):
                 continue
             try:
                 q.put_nowait(event)

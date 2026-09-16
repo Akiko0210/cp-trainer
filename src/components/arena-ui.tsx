@@ -55,6 +55,7 @@ export function ActionButton({
   onClick,
   disabled,
   tone = "accent",
+  size = "md",
   children,
 }: {
   onClick: () => void;
@@ -62,18 +63,22 @@ export function ActionButton({
   /** "accent" acts, "quiet" declines/cancels. Nothing here is a verdict, so
       nothing here gets a verdict colour. */
   tone?: "accent" | "quiet";
+  /** "sm" for a button inside a list row or a popup. */
+  size?: "md" | "sm";
   children: React.ReactNode;
 }) {
   const cls =
     tone === "accent"
       ? "bg-accent text-accent-ink hover:opacity-90"
       : "border border-line bg-page text-muted hover:text-ink";
+  const dims =
+    size === "sm" ? "rounded-lg px-2.5 py-1 text-xs" : "rounded-xl px-3.5 py-2 text-sm";
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-xl px-3.5 py-2 text-sm font-medium disabled:opacity-40 ${cls}`}
+      className={`${dims} font-medium disabled:opacity-40 ${cls}`}
     >
       {children}
     </button>

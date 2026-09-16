@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect } from "react";
+import { useNotificationOptIn, useNowMs } from "./notify-opt-in";
+
+// Re-exported: the clock store and the opt-in moved to notify-opt-in.ts so the
+// header's inbox can use them without pulling the contest UI into every page.
+export { useNotificationOptIn, useNowMs };
 
 /*
   Shared pieces for every contest surface: the dashboard card and /contests.
@@ -171,56 +176,6 @@ export function durationLabel(s: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// The clock
-//
-// A countdown depends on the viewer's clock, so the server snapshot is null —
-// callers render absolute times until hydration and countdowns right after.
-// The interval only runs while something subscribes, and a backgrounded tab
-// (where intervals are throttled) is caught up by the visibility listener.
-// ---------------------------------------------------------------------------
-
-const TICK_MS = 30 * 1000;
-
-let nowMs: number | null = null;
-const listeners = new Set<() => void>();
-let timer: ReturnType<typeof setInterval> | null = null;
-
-function tick() {
-  nowMs = Date.now();
-  listeners.forEach((notify) => notify());
-}
-
-function onVisible() {
-  if (document.visibilityState === "visible") tick();
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  if (listeners.size === 1) {
-    nowMs = Date.now();
-    timer = setInterval(tick, TICK_MS);
-    document.addEventListener("visibilitychange", onVisible);
-  }
-  return () => {
-    listeners.delete(listener);
-    if (listeners.size === 0 && timer) {
-      clearInterval(timer);
-      timer = null;
-      document.removeEventListener("visibilitychange", onVisible);
-    }
-  };
-}
-
-/** Milliseconds since epoch, refreshed every 30s. `null` until hydrated. */
-export function useNowMs(): number | null {
-  return useSyncExternalStore(
-    subscribe,
-    () => nowMs,
-    () => null,
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Reminders
 //
 // A Web Notification fired NOTIFY_LEAD_MS before the start, scheduled with
@@ -248,45 +203,6 @@ export type Remindable = {
   platform: string;
   starts_at_ms: number;
 };
-
-/**
- * The opt-in to browser notifications, keyed per feature so turning on
- * contest reminders doesn't also turn on arena alerts. Permission and the
- * flag are read straight from the browser during render (guarded to
- * post-hydration by `now`); state exists only so the toggle can move them
- * without a reload.
- */
-export function useNotificationOptIn(storageKey: string) {
-  const now = useNowMs();
-  const [override, setOverride] = useState<{
-    enabled: boolean;
-    denied: boolean;
-  } | null>(null);
-
-  const supported = now !== null && "Notification" in window;
-  const denied = override?.denied ?? (supported && Notification.permission === "denied");
-  const enabled =
-    override?.enabled ??
-    (supported &&
-      Notification.permission === "granted" &&
-      localStorage.getItem(storageKey) === "1");
-
-  const toggle = async () => {
-    if (enabled) {
-      localStorage.setItem(storageKey, "0");
-      setOverride({ enabled: false, denied: false });
-      return;
-    }
-    const permission = await Notification.requestPermission();
-    if (permission === "granted") localStorage.setItem(storageKey, "1");
-    setOverride({
-      enabled: permission === "granted",
-      denied: permission === "denied",
-    });
-  };
-
-  return { supported, enabled, denied, toggle };
-}
 
 export function useContestReminders(contests: Remindable[]) {
   const { supported, enabled, denied, toggle } = useNotificationOptIn(ENABLED_KEY);

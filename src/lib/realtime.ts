@@ -1,4 +1,5 @@
 import { Client } from "pg";
+import type { NotificationKind } from "./notification-queries";
 
 /*
   Real-time fan-out — the FALLBACK copy. When WORKER_URL is set, browsers
@@ -41,7 +42,18 @@ export type StandingsEvent =
   // 006: a battle's own row (status = its lifecycle) or one of its children
   // (status 'players' | 'match'). Consumers refetch and diff; nothing reads
   // the payload beyond guild_id.
-  | { type: "battle"; guild_id: number; battle_id: number; status: string };
+  | { type: "battle"; guild_id: number; battle_id: number; status: string }
+  // 007: an inbox row for ONE person. `recipient_id` marks the event as
+  // addressed; this fan-out and the worker's both drop it for anyone else.
+  // (Not `user_id`: mastery/solve/roster use that name for the actor.)
+  | {
+      type: "inbox";
+      guild_id: number;
+      recipient_id: number;
+      id: number;
+      kind: NotificationKind;
+      duel_id: number | null;
+    };
 
 type Subscriber = (event: StandingsEvent) => void;
 
@@ -110,9 +122,13 @@ async function ensureListening(): Promise<void> {
         silently never arrive. The board would look connected and simply never
         move, which is the worst possible failure for this feature.
       */
+      // `||`, not `??`: the local launch entries set DATABASE_URL_UNPOOLED
+      // to an empty string to mean "none", and an empty connection string
+      // connects to nothing — the stream would open, send `ready`, and never
+      // deliver an event.
       connectionString:
-        process.env.DATABASE_URL_UNPOOLED ??
-        process.env.DATABASE_URL ??
+        process.env.DATABASE_URL_UNPOOLED ||
+        process.env.DATABASE_URL ||
         "postgresql://cp:cp@localhost:5488/cp_trainer",
     });
     client.on("notification", (msg) => {

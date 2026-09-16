@@ -9,7 +9,9 @@ to the right guild. No tables are touched — NOTIFY needs no schema.
 
 What it guards, in order of expense:
   * **Filtering.** A stream must never carry another guild's events. This is
-    the security property of the whole feature.
+    the security property of the whole feature. Since 007 an event may also
+    be addressed (`recipient_id`): it reaches that one person and nobody
+    else, including a subscriber whose token names no user at all.
   * **Tokens.** The Next app mints, this side verifies; the pair has to agree
     byte-for-byte (the signature is over the encoded payload string). Expired
     and tampered tokens must both bounce.
@@ -153,6 +155,50 @@ async def test_stream() -> None:
             check("event arrives", ev["event"], "standings")
             check_true("it is ours, not guild 2's", '"user_id": 4' in ev["data"]
                        or '"user_id":4' in ev["data"])
+
+            # Addressed events (the inbox, 007): same guild, but one carries
+            # recipient_id 2 and we are user 1. Only the one addressed to us
+            # may arrive, and it arrives first — the other was dropped, not
+            # delayed.
+            def fire_addressed() -> None:
+                with db.connect() as conn, conn.cursor() as cur:
+                    cur.execute(
+                        "select pg_notify('standings',"
+                        " '{\"type\":\"inbox\",\"guild_id\":1,\"recipient_id\":2,\"id\":50}')"
+                    )
+                    cur.execute(
+                        "select pg_notify('standings',"
+                        " '{\"type\":\"inbox\",\"guild_id\":1,\"recipient_id\":1,\"id\":51}')"
+                    )
+                    cur.execute(
+                        "select pg_notify('standings',"
+                        " '{\"type\":\"solve\",\"guild_id\":1,\"user_id\":5}')"
+                    )
+                    conn.commit()
+
+            await asyncio.to_thread(fire_addressed)
+            mine, broad = await read_events(lines, 2)
+            check_true("addressed to me arrives", '"id": 51' in mine["data"]
+                       or '"id":51' in mine["data"])
+            check_true("the one for user 2 never did; guild-wide still does",
+                       '"user_id": 5' in broad["data"] or '"user_id":5' in broad["data"])
+
+        print("\naddressed events need a user claim")
+        # A token with no `u` gets guild-wide events and NO addressed ones —
+        # "nobody in particular" must never mean "everybody".
+        import json as _json
+        payload = broadcast._b64url(_json.dumps({"g": 1, "exp": int(time.time()) + 60}).encode())
+        import hmac as _hmac
+        sig = broadcast._b64url(_hmac.new(secret.encode(), payload.encode(), "sha256").digest())
+        anon = f"{payload}.{sig}"
+        async with client.stream("GET", f"/stream?token={anon}") as resp:
+            check("anonymous-user stream opens", resp.status_code, 200)
+            lines = resp.aiter_lines()
+            await read_events(lines, 1)
+            await asyncio.to_thread(fire_addressed)
+            (only,) = await read_events(lines, 1)
+            check_true("only the guild-wide event arrives",
+                       '"user_id": 5' in only["data"] or '"user_id":5' in only["data"])
 
         print("\nidle close")
         # The stream above is closed; after the grace window the LISTEN must

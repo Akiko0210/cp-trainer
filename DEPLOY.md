@@ -474,7 +474,12 @@ The worker also serves the live leaderboard stream: browsers hit its
 `worker/broadcast.py`), so streams are never cut at 60 seconds, Vercel burns
 no invocations holding them, and exactly one LISTEN connection exists no
 matter how many tabs are open — torn down half a minute after the last viewer
-leaves, so Neon can still scale to zero.
+leaves, so Neon can still scale to zero. The duel inbox (the header bell)
+rides this same stream: an event carrying `recipient_id` is delivered only to
+the subscriber whose token names that user, so it costs no extra connection
+and nothing new to configure. The `first=` hint on `POST /arena/poke` (the
+bullet room's *Check now*) wakes a live loop early and polls that player
+first; each click buys at most one extra pass, metered by the CF lock.
 
 The box is stateless — all data is in Neon — so if the service dies, recreate
 it from these six steps and nothing is lost. `sync-codeforces.yml` remains as
@@ -532,6 +537,7 @@ short restore history, so check what your plan retains before you need it.
 | --- | --- | --- |
 | Neon compute | 100 CU-hrs/mo | the compute is suspended until the next month: every page 500s, the worker's syncs fail. Neon bills awake time (0.25 CU floor, suspend after a fixed 5 idle minutes), not queries — so the spenders are whatever keeps it awake: a background tab holding a live stream (the app parks hidden tabs' streams, except a tab that is *in* a live match), the sync cadence (each pass buys a ~5-minute wake), the menu bar app's poll, and the arena while a race runs — a battle holds the database awake only while matches are in progress, not for its whole scheduled length (the worker sleeps without a connection until the start, the bell or the next queue click), at about 2.2 s of Codeforces polling per matched player per pass: an 8-hour battle that is actually being played all evening is on the order of 2 CU-hrs |
 | Neon storage | 0.5 GB | writes start failing; your database is ~31 MB with 6 members, so it is roughly 5–10 MB per active member |
+| Neon queries from the inbox | — | one indexed read per signed-in hard page load (the layout seeds the bell) and one per inbox event addressed to you; the seen/read writes are batched into one statement per tick. Nothing polls |
 | Neon direct connections | one per open live stream | the board stops updating for late arrivals; only a concern above ~20 people watching at once |
 | Actions minutes | 2,000/mo on a private repo, unlimited on a public one | only bites if you get a schedule working at all; billing rounds each run up to a minute |
 | Neon idle suspend | — | first visitor after a quiet spell waits a few seconds |

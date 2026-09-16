@@ -32,7 +32,11 @@ type LiveState = {
   version: number;
   /** True for a moment after each event — for "something moved" flashes. */
   pulse: boolean;
+  /** The most recent event, for consumers that care which thing moved. */
   last: StandingsEvent | null;
+  /** Bumped once per event, never coalesced: an effect keyed on `last`
+      alone can miss one of two events landing in the same tick. */
+  seq: number;
 };
 
 const Ctx = createContext<LiveState>({
@@ -40,6 +44,7 @@ const Ctx = createContext<LiveState>({
   version: 0,
   pulse: false,
   last: null,
+  seq: 0,
 });
 
 export function useGuildLive(): LiveState {
@@ -81,6 +86,7 @@ export default function GuildLive({
   const [version, setVersion] = useState(0);
   const [pulse, setPulse] = useState(false);
   const [last, setLast] = useState<StandingsEvent | null>(null);
+  const [seq, setSeq] = useState(0);
   // Live holds (useLiveHold) and the stream effect's reaction to one
   // changing — set inside the effect, so it closes over that effect's state.
   const holds = useRef(0);
@@ -163,6 +169,7 @@ export default function GuildLive({
       source.addEventListener("standings", (e) => {
         try {
           setLast(JSON.parse((e as MessageEvent).data) as StandingsEvent);
+          setSeq((n) => n + 1);
         } catch {
           // A malformed payload shouldn't stop the version bump below.
         }
@@ -286,8 +293,8 @@ export default function GuildLive({
   }, [enabled]);
 
   const value = useMemo(
-    () => ({ live, version, pulse, last }),
-    [live, version, pulse, last],
+    () => ({ live, version, pulse, last, seq }),
+    [live, version, pulse, last, seq],
   );
   return (
     <HoldCtx.Provider value={adjustHold}>

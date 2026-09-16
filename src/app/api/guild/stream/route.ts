@@ -61,6 +61,10 @@ export async function GET(req: Request) {
 
       const unsubscribe = await subscribe((ev) => {
         if (Number(ev.guild_id) !== guildId) return;
+        // Addressed events (the inbox) reach one person. Same coercion, same
+        // reason: the id in the payload is a JSON number, the session's may
+        // not be.
+        if ("recipient_id" in ev && Number(ev.recipient_id) !== Number(user.id)) return;
         send("standings", ev);
       });
 

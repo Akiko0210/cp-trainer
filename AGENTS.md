@@ -38,6 +38,11 @@ taking a week off.
 - `LISTEN` cannot survive a transaction pooler — every real-time client uses
   `DATABASE_URL_UNPOOLED` (or a direct `DATABASE_URL`). Through a pooler it
   connects fine and then silently never receives anything.
+- A `standings` event carrying `recipient_id` is *addressed*: both fan-outs
+  must deliver it only to that user, and a subscriber with no user claim gets
+  none of them. The inbox (`notifications`) is written only by the trigger on
+  `duels` — never from the app — so every transition, wherever it happens,
+  produces its row exactly once.
 - There are two LISTEN fan-outs and only one runs at a time: the worker's
   (`worker/broadcast.py`) serves browsers directly whenever `WORKER_URL` is
   set; the web app's (`src/lib/realtime.ts` + the stream route) is the

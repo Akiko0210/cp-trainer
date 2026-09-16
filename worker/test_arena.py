@@ -29,6 +29,8 @@ What it guards:
   * The clocks: a scheduled battle opens with everyone queued in join order,
     fewer than two players cancels it, the bell closes it, and closing ends
     once the last match settles.
+  * The inbox (007): every duel transition writes exactly the rows it should,
+    to exactly the people it should, once — and a withdrawal writes none.
 """
 
 import asyncio
@@ -111,6 +113,7 @@ def teardown(conn) -> None:
         ids = [r["id"] for r in cur.fetchall()]
         if ids:
             cur.execute("delete from battles where guild_id in (select id from guilds where slug = %s)", (SLUG,))
+            cur.execute("delete from notifications where user_id = any(%s)", (ids,))
             cur.execute("delete from duels where challenger_id = any(%s) or opponent_id = any(%s)", (ids, ids))
             cur.execute("delete from submissions where user_id = any(%s)", (ids,))
             cur.execute("delete from users where id = any(%s)", (ids,))
@@ -569,6 +572,74 @@ def test_status(conn, fx) -> None:
     run(conn, "delete from battles where id = %s", bid)
 
 
+def inbox(conn, uid: int, did: int) -> list[str]:
+    return [r["kind"] for r in rows(
+        conn, "select kind from notifications where user_id = %s and duel_id = %s order by id",
+        uid, did)]
+
+
+def test_inbox(conn, fx) -> None:
+    print("inbox: who is told what, once")
+    u1, u2 = fx["users"][:2]
+
+    did = make_bullet(conn, fx, u1, u2)
+    check("challenge: the opponent has a row", inbox(conn, u2, did), ["duel_challenge"])
+    check("challenge: the challenger has none", inbox(conn, u1, did), [])
+    r = row(conn, "select actor_id, payload from notifications where user_id = %s and duel_id = %s", u2, did)
+    check("challenge: actor is the challenger", r["actor_id"], u1)
+    check("challenge: payload carries the ladder",
+          (r["payload"]["mode"], r["payload"]["duration_s"], r["payload"]["bullet_step"]),
+          ("bullet", 600, 100))
+
+    row(conn, "select bullet_accept(%s, %s) as r", did, u2)
+    conn.commit()
+    check("accept: the challenger is told", inbox(conn, u1, did), ["duel_accepted"])
+    # The same transition again (a re-run of an idempotent statement) adds
+    # nothing: the WHEN guard and the unique index both stand in the way.
+    run(conn, "update duels set status = 'active' where id = %s", did)
+    check("a no-op status write adds nothing", inbox(conn, u1, did), ["duel_accepted"])
+    run(conn, "insert into notifications (user_id, guild_id, kind, duel_id, actor_id)"
+              " values (%s, %s, 'duel_accepted', %s, %s) on conflict do nothing",
+        u1, fx["guild"], did, u2)
+    check("a duplicate row is refused by the index", inbox(conn, u1, did), ["duel_accepted"])
+
+    run(conn, "insert into duel_rounds (duel_id, round_no, problem_id, target_rating, points,"
+              " winner_id, won_at, closed_at) values (%s, 9, %s, 1000, 1300, %s, now(), now())",
+        did, fx["problems"][1300], u2)
+    run(conn, "update duels set status = 'finished', finish_reason = 'forfeit', winner_id = %s,"
+              " finished_at = now() where id = %s", u2, did)
+    check("finish: both are told", (inbox(conn, u1, did)[-1], inbox(conn, u2, did)[-1]),
+          ("duel_finished", "duel_finished"))
+    r = row(conn, "select payload from notifications where user_id = %s and duel_id = %s"
+                  " and kind = 'duel_finished'", u1, did)
+    check("finish: payload has the winner and the points",
+          (r["payload"]["winner_id"], r["payload"]["finish_reason"],
+           r["payload"]["challenger_points"], r["payload"]["opponent_points"]),
+          (u2, "forfeit", 0, 1300))
+    run(conn, "delete from duels where id = %s", did)
+
+    did = make_bullet(conn, fx, u1, u2)
+    run(conn, "update duels set status = 'declined' where id = %s", did)
+    check("decline: the challenger is told", inbox(conn, u1, did), ["duel_declined"])
+    run(conn, "delete from duels where id = %s", did)
+
+    did = make_bullet(conn, fx, u1, u2)
+    run(conn, "update duels set status = 'cancelled' where id = %s", did)
+    check("withdraw: nobody gets a new row",
+          (inbox(conn, u1, did), inbox(conn, u2, did)), ([], ["duel_challenge"]))
+    run(conn, "delete from duels where id = %s", did)
+
+    did = make_bullet(conn, fx, u1, u2)
+    run(conn, "update duels set expires_at = now() - interval '1 second' where id = %s", did)
+    arena._sweep(conn)
+    check("expiry by the sweep: the challenger is told", inbox(conn, u1, did), ["duel_expired"])
+    check("expiry: the opponent's challenge row still stands (status comes from the join)",
+          inbox(conn, u2, did), ["duel_challenge"])
+    run(conn, "delete from duels where id = %s", did)
+    check("deleting the duel cascades to its rows",
+          row(conn, "select count(*) as n from notifications where duel_id = %s", did)["n"], 0)
+
+
 # --- runner -----------------------------------------------------------------
 
 
@@ -588,6 +659,7 @@ async def main() -> int:
             test_knockout(conn, fx)
             test_battle_clocks(conn, fx)
             test_status(conn, fx)
+            test_inbox(conn, fx)
         finally:
             conn.rollback()
             teardown(conn)

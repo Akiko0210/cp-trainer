@@ -146,9 +146,10 @@ async def stream(token: str = ""):
     except broadcast.TokenError as e:
         raise HTTPException(401, str(e))
     guild_id = int(claims["g"])
+    user_id = int(claims["u"]) if claims.get("u") is not None else None
 
     async def gen():
-        q = await broadcast.broadcaster.register(guild_id)
+        q = await broadcast.broadcaster.register(guild_id, user_id)
         try:
             yield f"event: ready\ndata: {json.dumps({'guild_id': guild_id})}\n\n"
             while True:
@@ -161,7 +162,7 @@ async def stream(token: str = ""):
                     # client is finally noticed (the write fails).
                     yield ": ping\n\n"
         finally:
-            broadcast.broadcaster.unregister(q, guild_id)
+            broadcast.broadcaster.unregister(q, guild_id, user_id)
 
     return StreamingResponse(
         gen(),
@@ -193,13 +194,18 @@ async def sync_endpoint(user_id: int, background: BackgroundTasks, quick: bool =
 
 
 @app.post("/arena/poke", dependencies=[Depends(require_token)])
-async def arena_poke():
+async def arena_poke(first: int | None = None):
     """Wake the arena loop (worker/arena.py). The Next app calls this when a
     duel goes active, a guild contest starts, a battle is created, cancelled
     or started early, or someone queues for a match — a dormant loop waiting
     on a scheduled start has to re-evaluate. It parks itself again once
-    nothing needs it, so poking an idle worker is nearly free."""
-    return {"started": arena.poke()}
+    nothing needs it, so poking an idle worker is nearly free.
+
+    A live loop is woken too (its sleep is interruptible), and `first` names
+    a player to poll ahead of the field in that pass: a bullet player who
+    just got AC clicks "check now" and their solve lands after one CF call
+    instead of after the sleep plus everyone ahead of them."""
+    return {"started": arena.poke(first)}
 
 
 @app.post("/validate-handle/{handle}", dependencies=[Depends(require_token)])

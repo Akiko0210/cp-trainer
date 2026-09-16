@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActionButton,
   fmtClock,
@@ -15,6 +15,7 @@ import { shortName } from "./guild-ui";
 import Select from "./Select";
 import { Toasts, useToasts } from "./Toast";
 import { Card, Label } from "./ui";
+import { armChime, requestNotifyPermission } from "@/lib/alerts";
 import type { Duel } from "@/lib/arena-queries";
 import {
   BULLET_DURATIONS_S,
@@ -57,7 +58,7 @@ const START_RATINGS = Array.from(
 );
 
 export default function DuelPanel({ meId }: { meId: number }) {
-  const { version, live } = useGuildLive();
+  const { version, live, last, seq } = useGuildLive();
   const [state, setState] = useState<DuelState | null>(null);
   const [opponent, setOpponent] = useState<string>("");
   const [mode, setMode] = useState<DuelMode>("classic");
@@ -95,7 +96,34 @@ export default function DuelPanel({ meId }: { meId: number }) {
     };
   }, [version]);
 
+  /*
+    A bullet round closing is the one event where the 400ms coalesce in
+    GuildLive is worth skipping: the next problem opens for both players in
+    the same commit, and every tenth of a second is a head start for whoever
+    repaints first. So an event about *this* duel refetches at once.
+  */
+  const duelIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    duelIdRef.current = state?.duel?.id ?? null;
+  }, [state]);
+  useEffect(() => {
+    if (seq === 0 || !last || last.type !== "duel") return;
+    if (duelIdRef.current !== null && Number(last.duel_id) === duelIdRef.current) {
+      void load();
+    }
+  }, [seq]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const { act, busy, error } = useAct(load);
+
+  /*
+    Accepting or sending a challenge is the gesture that turns the loud
+    alerts on for the race: ask for permission and arm the chime here, before
+    the request — Safari treats the gesture as spent after the first await.
+  */
+  const arm = () => {
+    armChime();
+    requestNotifyPermission();
+  };
 
   const duel =
     state?.duel && state.duel.id !== dismissedId ? state.duel : null;
@@ -229,15 +257,16 @@ export default function DuelPanel({ meId }: { meId: number }) {
             )}
             <ActionButton
               disabled={busy || !opponent || !state.detectable}
-              onClick={() =>
+              onClick={() => {
+                arm();
                 void act("/api/guild/duels", {
                   opponent_id: Number(opponent),
                   mode,
                   duration_s: Number(minutes) * 60,
                   start_rating: Number(start),
                   step: Number(step),
-                })
-              }
+                });
+              }}
             >
               {mode === "bullet" ? "Challenge to bullet" : "Challenge"}
             </ActionButton>
@@ -297,9 +326,10 @@ export default function DuelPanel({ meId }: { meId: number }) {
               <>
                 <ActionButton
                   disabled={busy}
-                  onClick={() =>
-                    void act(`/api/guild/duels/${duel.id}`, { action: "accept" })
-                  }
+                  onClick={() => {
+                    arm();
+                    void act(`/api/guild/duels/${duel.id}`, { action: "accept" });
+                  }}
                 >
                   Accept — go!
                 </ActionButton>
@@ -329,6 +359,9 @@ export default function DuelPanel({ meId }: { meId: number }) {
           push={push}
           onForfeit={() =>
             void act(`/api/guild/duels/${duel.id}`, { action: "forfeit" })
+          }
+          onPoke={() =>
+            void act(`/api/guild/duels/${duel.id}`, { action: "poke" })
           }
         />
       )}

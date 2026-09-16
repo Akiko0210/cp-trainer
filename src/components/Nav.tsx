@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import GuildChip from "./GuildChip";
+import NotificationBell from "./NotificationBell";
 import StreakChip from "./StreakChip";
 import ThemeToggle from "./ThemeToggle";
 import type { MyStanding } from "@/lib/guild-queries";
@@ -95,6 +96,8 @@ export default function Nav({
               </span>
             </Link>
           )}
+          {/* The inbox: a challenge finds you on any page, not just Duels. */}
+          {guild && <NotificationBell />}
           <ThemeToggle />
         </div>
       </div>

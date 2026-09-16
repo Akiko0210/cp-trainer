@@ -137,11 +137,13 @@ narrowed to one area — the honest "Elo", unfarmable by grinding easy problems
 because the fit prices what you fail as well as what you clear), **Streak**, and
 **Solved · 30d**.
 
-**Everything is live.** Triggers on `submissions`, `topic_mastery` and `users`
-`pg_notify` a `standings` channel with the guild in the payload; one LISTEN
-connection fans out to an SSE stream per viewer (filtered server-side by
-guild, so a member who joins while you're watching appears immediately), and
-one client-side stream per tab tells every guild surface to re-fetch. With a
+**Everything is live.** Triggers on `submissions`, `topic_mastery`, `users`,
+the arena tables and `notifications` `pg_notify` a `standings` channel with
+the guild in the payload; one LISTEN connection fans out to an SSE stream per
+viewer (filtered server-side by guild, so a member who joins while you're
+watching appears immediately — and an event that also names a `recipient_id`,
+the inbox, reaches that one person only, on both fan-outs), and one
+client-side stream per tab tells every guild surface to re-fetch. With a
 worker configured the stream comes from the worker itself — browsers connect
 to it directly with a token the app signs, so no serverless duration cap ever
 cuts it and the whole thing costs one database connection; without one, the
@@ -205,10 +207,22 @@ group, so the header and tabs wrap all five without adding a path segment, and
 the invite page (`/guild/join/[code]`) stays outside it — it is shown to people
 who are not in the guild yet, and guild chrome would be a lie there.
 
-A pending duel is therefore visible on the Duels tab and nowhere else: there
-is no cross-page banner announcing one. That is deliberate — the invitation
-already carries its own five-minute clock, and a challenge nobody opened
-simply expires.
+A challenge finds you wherever you are. Every duel transition — sent,
+accepted, declined, withdrawn, expired, finished — writes a row to a
+per-person **inbox** (a trigger on `duels`, so the app, the worker and the
+sweep all produce it without knowing), and that row is what the **bell** in
+the header counts and lists, what pops up **top right** on whatever page you
+are on, and what is waiting when you next sign in: a challenge still inside
+its five minutes pops with its clock and *Accept / Decline* right there. The
+inbox rides the same live stream as everything else (an event carrying
+`recipient_id` reaches that one person and nobody else), so it adds no
+connections and no polling — and it inherits the stream's one limit: a tab
+hidden for over a minute has parked its stream and learns of a challenge
+when it comes back. A challenge sent while you were away therefore usually
+arrives already expired, and says so, with a *Challenge back* link; the
+five-minute clock stays short on purpose, because a pending challenge holds
+the challenger out of every other race. Round-by-round events in a bullet
+duel are not inbox rows — they belong to the room, below.
 
 A **duel** is a challenge to one guildmate: the invitation holds for five
 minutes. *Classic*: accepting it starts a 45-minute race on one random
@@ -256,11 +270,19 @@ the room's page.
 side solved it, that a new problem is up, that your match is ready, that
 you've climbed or been knocked out. Every room carries a feed of exactly
 those facts (derived from the refetched state, so a reload shows the same
-history everyone else saw), the ones about you arrive as toasts, and — opt-in
-per tab, because it needs browser permission — as a notification, a short
-chime and a flashed title while the tab is hidden. A participant's tab also
-keeps the live stream open while hidden for as long as they are in a match or
-the queue; spectators' tabs park as usual.
+history everyone else saw), the ones about you arrive as toasts, and — while
+you are *away*, meaning the tab is hidden **or the window is unfocused**,
+because the real setup is Codeforces in the window beside this one — as a
+notification, a short chime and a flashed title. Those need browser
+permission, which is asked for in the click that accepts or sends a
+challenge; once granted they are **on by default** for anyone in a race, and
+the *Alerts* toggle in the room or the bell turns them off. A bullet room
+also refetches the instant an event about its own duel lands (skipping the
+usual coalescing), and carries a **Check now** button: just got AC? It wakes
+the worker's loop and has it poll you first, so the round settles after one
+Codeforces call instead of after the sleep and everyone ahead of you. A
+participant's tab keeps the live stream open while hidden for as long as
+they are in a match or the queue; spectators' tabs park as usual.
 
 Solving happens on Codeforces as usual. Detection is the worker's arena loop
 ([worker/arena.py](worker/arena.py)): while something is live it polls each

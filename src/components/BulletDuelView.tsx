@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ActionButton, BigClock, fmtClock } from "./arena-ui";
 import { useLiveHold } from "./GuildLive";
 import { Avatar, shortName } from "./guild-ui";
@@ -27,6 +27,7 @@ export default function BulletDuelView({
   live,
   busy,
   onForfeit,
+  onPoke,
   push,
 }: {
   duel: Duel;
@@ -35,6 +36,8 @@ export default function BulletDuelView({
   live: boolean;
   busy: boolean;
   onForfeit: () => void;
+  /** Ask the worker to look at my submissions now rather than next pass. */
+  onPoke: () => void;
   push: (text: string) => void;
 }) {
   // The whole point of the mode is finding out in time; a hidden tab must
@@ -59,6 +62,15 @@ export default function BulletDuelView({
   // change remounts it and replays the animation. (It also pops once when
   // the view first appears — the game beginning is worth a flourish.)
   const pop = "score-pop";
+
+  // "Check now" pulls the worker's next look forward; a few seconds between
+  // clicks because one look is all a click can buy (the CF lock meters it).
+  const [cooling, setCooling] = useState(false);
+  const checkNow = () => {
+    setCooling(true);
+    onPoke();
+    setTimeout(() => setCooling(false), 3000);
+  };
 
   return (
     <div>
@@ -161,9 +173,13 @@ export default function BulletDuelView({
         <p className="text-xs text-muted">
           Submit on Codeforces as usual — rounds are settled on the judge&apos;s
           clock, checked every few seconds. Take one and the next opens at once.
+          Just got AC? <strong>Check now</strong> pulls the next look forward.
         </p>
         <div className="flex items-center gap-2">
           <AlertsToggle {...alerts} />
+          <ActionButton tone="quiet" disabled={cooling} onClick={checkNow}>
+            {cooling ? "Checking…" : "Check now"}
+          </ActionButton>
           <ActionButton tone="quiet" disabled={busy} onClick={onForfeit}>
             Concede
           </ActionButton>

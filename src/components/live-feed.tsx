@@ -5,6 +5,7 @@ import LocalTime from "./LocalTime";
 import { fmtDur } from "./arena-ui";
 import { useNotificationOptIn } from "./contest-ui";
 import { shortName } from "./guild-ui";
+import { armChime, notifyAway } from "@/lib/alerts";
 import type { Duel } from "@/lib/arena-queries";
 import type { Battle } from "@/lib/battle-queries";
 
@@ -21,9 +22,12 @@ import type { Battle } from "@/lib/battle-queries";
   Three ways a line reaches you, in escalating order of interruption: the
   ticker on the page (everything), a toast (things about you, and the few
   that matter to everyone — a new problem, a match ready, the end), and — only
-  while the tab is hidden, only if you opted in — a browser notification with
-  a short chime and a flashed title. Detection is the worker's poll, so "now"
-  means "within a few seconds"; the copy never promises instant.
+  while you are away (the tab hidden, or the window unfocused because
+  Codeforces is in the one beside it) — a browser notification with a short
+  chime and a flashed title. That last tier is on by default for anyone in a
+  race, once the browser has granted permission (asked for when you accept or
+  send a challenge); the toggle turns it off. Detection is the worker's poll,
+  so "now" means "within a few seconds"; the copy never promises instant.
 */
 
 export type FeedItem = {
@@ -203,55 +207,9 @@ export function battleFeed(b: Battle, meId: number): FeedItem[] {
 }
 
 // ---------------------------------------------------------------------------
-// Alerts: toast now; notification + chime + title flash when hidden
+// Alerts: toast now; notification + chime + title flash when you're away
+// (the escalation itself lives in lib/alerts.ts, shared with the inbox)
 // ---------------------------------------------------------------------------
-
-let audio: AudioContext | null = null;
-
-/** Called from the opt-in click, because a context made outside a user
-    gesture starts suspended and a hidden tab can't resume it. */
-function armChime() {
-  try {
-    audio ??= new AudioContext();
-    void audio.resume();
-  } catch {
-    audio = null;
-  }
-}
-
-function chime() {
-  if (!audio) return;
-  try {
-    const t = audio.currentTime;
-    const osc = audio.createOscillator();
-    const gain = audio.createGain();
-    osc.connect(gain);
-    gain.connect(audio.destination);
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(880, t);
-    osc.frequency.setValueAtTime(1174.66, t + 0.12);
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.16, t + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
-    osc.start(t);
-    osc.stop(t + 0.42);
-  } catch {
-    // No sound is not a failure.
-  }
-}
-
-let originalTitle: string | null = null;
-function flashTitle(text: string) {
-  if (originalTitle === null) originalTitle = document.title;
-  document.title = `● ${text}`;
-  const restore = () => {
-    if (document.visibilityState !== "visible") return;
-    if (originalTitle !== null) document.title = originalTitle;
-    originalTitle = null;
-    document.removeEventListener("visibilitychange", restore);
-  };
-  document.addEventListener("visibilitychange", restore);
-}
 
 /**
  * Diff the feed against what this tab has already shown and surface the new
@@ -276,25 +234,16 @@ export function useFeedAlerts(
       seen.current.add(i.key);
       if (!(i.mine || i.loud)) continue;
       push(i.text);
-      if (document.visibilityState === "hidden") {
-        flashTitle(i.text);
-        if (notify) {
-          try {
-            const n = new Notification(title, { body: i.text, tag: i.key });
-            n.onclick = () => window.focus();
-          } catch {
-            // Permission revoked since the toggle — the toast still shows.
-          }
-          chime();
-        }
-      }
+      notifyAway(title, i.text, i.key, { notify });
     }
   }, [items, push, notify, title]);
 }
 
-/** The arena's opt-in, shared by bullet and battles: one key, one answer. */
+/** The arena's opt-in, shared by bullet, battles and the inbox: one key, one
+    answer. On by default once permission exists — a race you agreed to is
+    the consent; the toggle is how you take it back. */
 export function useArenaAlerts() {
-  const optIn = useNotificationOptIn(ARENA_NOTIFY_KEY);
+  const optIn = useNotificationOptIn(ARENA_NOTIFY_KEY, { defaultOn: true });
   const toggle = () => {
     armChime();
     void optIn.toggle();
@@ -323,8 +272,8 @@ export function AlertsToggle({
         denied
           ? "Notifications are blocked for this site in your browser settings."
           : enabled
-            ? "Alerts on: a notification and a chime when something happens while this tab is hidden."
-            : "Get a notification and a chime when the other side solves, a new problem is up, or the game ends — while this tab is hidden."
+            ? "Alerts on: a notification and a chime when something happens while you're in another window or tab."
+            : "Get a notification and a chime when the other side solves, a new problem is up, or the game ends — while you're in another window or tab."
       }
       className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${
         enabled

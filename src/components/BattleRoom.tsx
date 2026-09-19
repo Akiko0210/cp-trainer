@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActionButton, BigClock, fmtDur, LoadingCard, useAct, useNow } from "./arena-ui";
+import { ActionButton, BigClock, fmtDur, LoadingCard, useAct, useNow, useRaceFloor } from "./arena-ui";
 import { Podium, RecordList, TierLadder, TierPill, MatchRow } from "./battle-ui";
 import { StatusPill } from "./BattlesPanel";
 import { useGuildLive, useLiveHold } from "./GuildLive";
@@ -138,11 +138,12 @@ function Room({
     battle.status === "scheduled" || battle.status === "active" || battle.status === "closing";
   const now = useNow(running);
 
-  useLiveHold(
+  const racing =
     !!me &&
-      battle.status !== "finished" &&
-      (me.state === "matched" || (me.state === "queued" && battle.status === "active")),
-  );
+    battle.status !== "finished" &&
+    (me.state === "matched" || (me.state === "queued" && battle.status === "active"));
+  useLiveHold(racing);
+  useRaceFloor(racing, load);
 
   const items = useMemo(() => battleFeed(battle, meId), [battle, meId]);
   const alerts = useArenaAlerts();

@@ -29,19 +29,48 @@ import json
 import logging
 import os
 import time
+from urllib.parse import urlsplit, urlunsplit
 
 import psycopg
 
 log = logging.getLogger("broadcast")
 
+
+def listen_url(url: str) -> str:
+    """The direct endpoint for a Neon pooled URL; anything else unchanged.
+
+    Neon names its pooler `<endpoint>-pooler.<region>…` and the same host
+    without the suffix is the direct connection. This exists because the
+    production worker was given only the pooled DATABASE_URL: LISTEN went
+    through PgBouncer, registered without complaint, logged "up", and never
+    received a single notification — every live surface froze until a
+    reload, and nothing anywhere looked like an error.
+    """
+    parts = urlsplit(url)
+    userinfo, at, hostport = parts.netloc.rpartition("@")
+    host, colon, port = hostport.partition(":")
+    first, dot, rest = host.partition(".")
+    if not first.endswith("-pooler"):
+        return url
+    host = first[: -len("-pooler")] + dot + rest
+    return urlunsplit(parts._replace(netloc=f"{userinfo}{at}{host}{colon}{port}"))
+
+
 # LISTEN cannot survive a transaction pooler: the connection the listener was
 # registered on is handed to another caller between statements, and
-# notifications silently never arrive. Prefer the direct URL where one exists.
-DATABASE_URL = (
+# notifications silently never arrive. Prefer the direct URL where one exists,
+# and derive it from a recognisably pooled one where it doesn't.
+DATABASE_URL = listen_url(
     os.environ.get("DATABASE_URL_UNPOOLED")
     or os.environ.get("DATABASE_URL")
     or "postgresql://cp:cp@localhost:5488/cp_trainer"
 )
+# Where writers NOTIFY from — the triggers fire on whatever connection the
+# app and the sync use. The startup probe sends through this one so it tests
+# the real path.
+NOTIFY_URL = os.environ.get("DATABASE_URL") or DATABASE_URL
+PROBE_CHANNEL = "cp_listen_probe"
+PROBE_TIMEOUT_S = 10.0
 
 IDLE_CLOSE_S = 30.0
 RECONNECT_DELAY_S = 2.0
@@ -161,13 +190,22 @@ class Broadcaster:
                 conn = await psycopg.AsyncConnection.connect(
                     DATABASE_URL, autocommit=True
                 )
+                probe: asyncio.Task | None = None
                 try:
                     await conn.execute("listen standings")
+                    await conn.execute(f"listen {PROBE_CHANNEL}")
                     self._up.set()
                     log.info("LISTEN standings up")
+                    heard = asyncio.Event()
+                    probe = asyncio.create_task(self._probe(heard))
                     async for n in conn.notifies():
+                        if n.channel == PROBE_CHANNEL:
+                            heard.set()
+                            continue
                         self._dispatch(n.payload)
                 finally:
+                    if probe is not None:
+                        probe.cancel()
                     self._up.clear()
                     await conn.close()
             except asyncio.CancelledError:
@@ -179,6 +217,32 @@ class Broadcaster:
                     "listener dropped; reconnecting in %.0fs", RECONNECT_DELAY_S
                 )
                 await asyncio.sleep(RECONNECT_DELAY_S)
+
+    async def _probe(self, heard: asyncio.Event) -> None:
+        """Prove the listener actually hears: NOTIFY on a private channel
+        through the writers' connection and wait for it to come back. "LISTEN
+        up" is not evidence — through a pooler it is logged and then nothing
+        ever arrives. A failed probe says so loudly in the log, which is the
+        only place this failure is visible at all."""
+        try:
+            async with await psycopg.AsyncConnection.connect(
+                NOTIFY_URL, autocommit=True
+            ) as c:
+                await c.execute("select pg_notify(%s, 'probe')", (PROBE_CHANNEL,))
+            await asyncio.wait_for(heard.wait(), timeout=PROBE_TIMEOUT_S)
+            log.info("LISTEN verified: a test NOTIFY round-tripped")
+        except asyncio.CancelledError:
+            raise
+        except TimeoutError:
+            log.error(
+                "LISTEN is up but a test NOTIFY never arrived within %.0fs — the "
+                "listener is almost certainly behind a transaction pooler, and no "
+                "live update will reach any browser. Set DATABASE_URL_UNPOOLED to "
+                "the direct connection string.",
+                PROBE_TIMEOUT_S,
+            )
+        except Exception:
+            log.exception("LISTEN probe could not run")
 
     def _dispatch(self, payload: str | None) -> None:
         if not payload:

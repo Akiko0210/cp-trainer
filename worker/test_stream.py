@@ -76,6 +76,26 @@ def test_tokens() -> None:
     check("no-secret dev mode", verify_stream_token(tok, "")["g"], 7)
 
 
+# --- the listen URL ----------------------------------------------------------
+
+
+def test_listen_url() -> None:
+    """A LISTEN through Neon's pooler registers and never hears anything —
+    production froze that way. The pooled host must be rewritten; nothing
+    else may be touched."""
+    print("\nlisten url")
+    from broadcast import listen_url
+
+    base = "postgresql://u:p@ep-lucky-tooth-1{}.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require"
+    check("neon pooler -> direct", listen_url(base.format("-pooler")), base.format(""))
+    check("direct untouched", listen_url(base.format("")), base.format(""))
+    check("port survives",
+          listen_url("postgresql://u:p@ep-a-pooler.eu.neon.tech:5432/db"),
+          "postgresql://u:p@ep-a.eu.neon.tech:5432/db")
+    local = "postgresql://cp:cp@localhost:5488/cp_trainer"
+    check("localhost untouched", listen_url(local), local)
+
+
 # --- the stream itself -------------------------------------------------------
 
 
@@ -221,6 +241,7 @@ async def test_stream() -> None:
 
 async def main() -> int:
     test_tokens()
+    test_listen_url()
     await test_stream()
     print()
     if FAILURES:

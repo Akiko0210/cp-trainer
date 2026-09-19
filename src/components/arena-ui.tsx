@@ -29,6 +29,29 @@ export function useNow(enabled: boolean): number {
   return now;
 }
 
+/*
+  The floor under a live race: while `active`, refetch every RACE_FLOOR_MS
+  whenever the tab is visible, on top of the live stream.
+
+  The stream is the plan and this is the insurance. It exists because the
+  stream once failed in the one way nobody can see — the worker's LISTEN went
+  through a connection pooler, said "up", and delivered nothing — and every
+  duel froze until someone reloaded. A race you have to refresh to follow is
+  not a race. Scoped to a race you are in (bounded: minutes, two players), so
+  it never keeps an idle database awake the way a global poll would.
+*/
+const RACE_FLOOR_MS = 10_000;
+
+export function useRaceFloor(active: boolean, load: () => Promise<void>): void {
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, RACE_FLOOR_MS);
+    return () => clearInterval(t);
+  }, [active, load]);
+}
+
 /** ms -> "m:ss" (or "h:mm:ss" once it matters). Clamped at zero. */
 export function fmtClock(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));

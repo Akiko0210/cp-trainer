@@ -106,6 +106,25 @@ function scheduleIdleClose(): void {
   globalForRT.rtIdleTimer = timer;
 }
 
+/**
+ * The direct endpoint for a Neon pooled URL; anything else unchanged.
+ * Neon's pooler host is `<endpoint>-pooler.<region>…` and the same host
+ * without the suffix is the direct one. A LISTEN through the pooler connects,
+ * registers, and never receives anything — so a pooled URL here is rewritten
+ * rather than trusted. (The worker's twin is broadcast.listen_url.)
+ */
+export function listenUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const [first, ...rest] = u.hostname.split(".");
+    if (!first.endsWith("-pooler")) return url;
+    u.hostname = [first.slice(0, -"-pooler".length), ...rest].join(".");
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 async function ensureListening(): Promise<void> {
   if (globalForRT.rtClient) return;
   if (globalForRT.rtConnecting) return globalForRT.rtConnecting;
@@ -126,10 +145,11 @@ async function ensureListening(): Promise<void> {
       // to an empty string to mean "none", and an empty connection string
       // connects to nothing — the stream would open, send `ready`, and never
       // deliver an event.
-      connectionString:
+      connectionString: listenUrl(
         process.env.DATABASE_URL_UNPOOLED ||
-        process.env.DATABASE_URL ||
-        "postgresql://cp:cp@localhost:5488/cp_trainer",
+          process.env.DATABASE_URL ||
+          "postgresql://cp:cp@localhost:5488/cp_trainer",
+      ),
     });
     client.on("notification", (msg) => {
       if (!msg.payload) return;

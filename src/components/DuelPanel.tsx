@@ -8,6 +8,7 @@ import {
   LoadingCard,
   useAct,
   useNow,
+  useRaceFloor,
 } from "./arena-ui";
 import BulletDuelView from "./BulletDuelView";
 import { useGuildLive } from "./GuildLive";
@@ -129,6 +130,8 @@ export default function DuelPanel({ meId }: { meId: number }) {
     state?.duel && state.duel.id !== dismissedId ? state.duel : null;
   const ticking = duel?.status === "pending" || duel?.status === "active";
   const now = useNow(ticking);
+  // A pending invite (either side) and a live race never wait on a reload.
+  useRaceFloor(ticking, load);
 
   /*
     When the countdown crosses zero the truth changes server-side (the sweep

@@ -37,7 +37,11 @@ taking a week off.
 **Postgres.**
 - `LISTEN` cannot survive a transaction pooler — every real-time client uses
   `DATABASE_URL_UNPOOLED` (or a direct `DATABASE_URL`). Through a pooler it
-  connects fine and then silently never receives anything.
+  connects fine and then silently never receives anything. This happened in
+  production (2026-09): the worker had only the pooled URL, logged "LISTEN
+  up", and no live update reached any browser. Both listeners now rewrite a
+  Neon `-pooler` host to the direct one, and the worker proves delivery with a
+  test NOTIFY at startup — don't remove either. "LISTEN up" is not evidence.
 - A `standings` event carrying `recipient_id` is *addressed*: both fan-outs
   must deliver it only to that user, and a subscriber with no user claim gets
   none of them. The inbox (`notifications`) is written only by the trigger on

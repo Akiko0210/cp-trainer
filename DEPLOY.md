@@ -440,7 +440,8 @@ configuration.
 2. **New service** from the repo. Region: match the database — Neon
    `us-east-2` means **US East**, or every statement pays a cross-country
    round trip (§ the 86 ms lesson).
-3. **Variables:** `DATABASE_URL` (the Neon **direct** string), `WORKER_TOKEN`
+3. **Variables:** `DATABASE_URL` (either Neon string), `DATABASE_URL_UNPOOLED`
+   (the Neon **direct** string — the host *without* `-pooler`), `WORKER_TOKEN`
    (`openssl rand -hex 32` — Vercel gets the identical value),
    `SYNC_INTERVAL_MINUTES=120`, and `PORT=8787` so the app, the healthcheck and
    the domain all agree on one port. The interval prices Neon compute, not
@@ -480,6 +481,16 @@ the subscriber whose token names that user, so it costs no extra connection
 and nothing new to configure. The `first=` hint on `POST /arena/poke` (the
 bullet room's *Check now*) wakes a live loop early and polls that player
 first; each click buys at most one extra pass, metered by the CF lock.
+
+**Check the live stream actually delivers.** After a deploy, the worker's log
+must show `LISTEN verified: a test NOTIFY round-tripped` shortly after the
+first viewer connects. `LISTEN standings up` alone proves nothing: a listener
+behind Neon's pooler registers, logs "up", and never receives a notification,
+so every live surface — the leaderboard, the duel invite, a bullet round —
+freezes until a reload while looking perfectly connected. Production ran that
+way until the worker was given `DATABASE_URL_UNPOOLED`. The worker now also
+rewrites a recognisably pooled Neon URL (`…-pooler.…`) to the direct host
+before listening, and logs an ERROR naming the fix if the probe still fails.
 
 The box is stateless — all data is in Neon — so if the service dies, recreate
 it from these six steps and nothing is lost. `sync-codeforces.yml` remains as

@@ -53,7 +53,12 @@ export default function Leaderboard({
 
   useEffect(() => {
     // The initial payload is already the "elo, all topics, version 0" answer.
-    if (version === 0 && board === "elo" && !category) return;
+    // Back on the default view: restore it. Returning without doing so leaves
+    // the previous tab's rows (whose `value` means something else) on screen.
+    if (version === 0 && board === "elo" && !category) {
+      setData(initial);
+      return;
+    }
     let cancelled = false;
     void (async () => {
       const params = new URLSearchParams({ board });
@@ -66,7 +71,7 @@ export default function Leaderboard({
     return () => {
       cancelled = true;
     };
-  }, [board, category, version]);
+  }, [board, category, version, initial]);
 
   const ranked = data.standings;
   const myRank = ranked.findIndex((s) => s.user_id === meId) + 1;

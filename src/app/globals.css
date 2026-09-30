@@ -198,6 +198,9 @@
 
 html {
   background: var(--page);
+  /* Reserve the scrollbar's width on every page, so a long page (Solve,
+     Mistakes) doesn't sit further left than a short one when you navigate. */
+  scrollbar-gutter: stable;
 }
 
 body {
